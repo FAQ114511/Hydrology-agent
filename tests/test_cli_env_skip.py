@@ -55,7 +55,7 @@ class TestCliSkipsPromptsFromEnv(unittest.TestCase):
              mock.patch.object(m, "DEFAULT_CONFIG", fake_cfg), \
              mock.patch.object(m, "fetch_announcements", return_value=None), \
              mock.patch.object(m, "display_announcements"), \
-             mock.patch.object(m, "get_ticker", return_value="AAPL"), \
+             mock.patch.object(m, "get_station", return_value="XIANGJIANG"), \
              mock.patch.object(m, "get_analysis_date", return_value="2026-05-29"), \
              mock.patch.object(m, "select_analysts", return_value=[]), \
              mock.patch.object(m, "select_research_depth", return_value=1), \
@@ -75,6 +75,8 @@ class TestCliSkipsPromptsFromEnv(unittest.TestCase):
         ensure_key.assert_called_once()
 
         # The env values flow into the returned selections.
+        self.assertEqual(sel["station"], "XIANGJIANG")
+        self.assertEqual(sel["asset_type"], "flood")
         self.assertEqual(sel["llm_provider"], "openai")
         self.assertEqual(sel["backend_url"], "https://opencode.ai/zen/go/v1")
         self.assertEqual(sel["shallow_thinker"], "deepseek-v4-pro")
@@ -98,7 +100,7 @@ class TestResearchDepthSkippedFromEnv(unittest.TestCase):
              mock.patch.object(m, "DEFAULT_CONFIG", fake_cfg), \
              mock.patch.object(m, "fetch_announcements", return_value=None), \
              mock.patch.object(m, "display_announcements"), \
-             mock.patch.object(m, "get_ticker", return_value="AAPL"), \
+             mock.patch.object(m, "get_station", return_value="XIANGJIANG"), \
              mock.patch.object(m, "get_analysis_date", return_value="2026-05-29"), \
              mock.patch.object(m, "select_analysts", return_value=[]), \
              mock.patch.object(m, "select_research_depth") as prompt_depth, \
@@ -128,7 +130,7 @@ class TestReasoningEffortSkippedFromEnv(unittest.TestCase):
              mock.patch.object(m, "DEFAULT_CONFIG", fake_cfg), \
              mock.patch.object(m, "fetch_announcements", return_value=None), \
              mock.patch.object(m, "display_announcements"), \
-             mock.patch.object(m, "get_ticker", return_value="AAPL"), \
+             mock.patch.object(m, "get_station", return_value="XIANGJIANG"), \
              mock.patch.object(m, "get_analysis_date", return_value="2026-05-29"), \
              mock.patch.object(m, "select_analysts", return_value=[]), \
              mock.patch.object(m, "select_research_depth", return_value=1), \

@@ -6,6 +6,7 @@ must not clobber an env-configured value back to a prompt/flag default.
 """
 
 from unittest import mock
+from pathlib import Path
 
 import pytest
 
@@ -36,9 +37,11 @@ def test_research_depth_sets_both_rounds_without_env(monkeypatch):
 def test_env_round_counts_win_over_selection(monkeypatch):
     monkeypatch.setenv("TRADINGAGENTS_MAX_DEBATE_ROUNDS", "2")
     monkeypatch.setenv("TRADINGAGENTS_MAX_RISK_ROUNDS", "4")
-    # DEFAULT_CONFIG already reflects the env (applied at import); emulate that.
-    patched = dict(m.DEFAULT_CONFIG, max_debate_rounds=2, max_risk_discuss_rounds=4)
-    with mock.patch.object(m, "DEFAULT_CONFIG", patched):
+    # build_hydrology_config() is the hydration layer; emulate the env-applied
+    # values it would return rather than mutating the global DEFAULT_CONFIG.
+    patched = m.build_hydrology_config()
+    patched.update(max_debate_rounds=2, max_risk_discuss_rounds=4)
+    with mock.patch.object(m, "build_hydrology_config", return_value=patched):
         cfg = m._build_run_config(SELECTIONS, checkpoint=None)
     assert cfg["max_debate_rounds"] == 2  # env value, not research_depth=5
     assert cfg["max_risk_discuss_rounds"] == 4
@@ -47,23 +50,35 @@ def test_env_round_counts_win_over_selection(monkeypatch):
 def test_partial_env_only_overrides_that_count(monkeypatch):
     monkeypatch.setenv("TRADINGAGENTS_MAX_DEBATE_ROUNDS", "2")
     monkeypatch.delenv("TRADINGAGENTS_MAX_RISK_ROUNDS", raising=False)
-    patched = dict(m.DEFAULT_CONFIG, max_debate_rounds=2)
-    with mock.patch.object(m, "DEFAULT_CONFIG", patched):
+    patched = m.build_hydrology_config()
+    patched["max_debate_rounds"] = 2
+    with mock.patch.object(m, "build_hydrology_config", return_value=patched):
         cfg = m._build_run_config(SELECTIONS, checkpoint=None)
     assert cfg["max_debate_rounds"] == 2  # env wins
     assert cfg["max_risk_discuss_rounds"] == 5  # falls through to research_depth
 
 
 def test_checkpoint_none_preserves_env_default():
-    patched = dict(m.DEFAULT_CONFIG, checkpoint_enabled=True)  # e.g. env-enabled
-    with mock.patch.object(m, "DEFAULT_CONFIG", patched):
+    patched = m.build_hydrology_config()
+    patched["checkpoint_enabled"] = True
+    with mock.patch.object(m, "build_hydrology_config", return_value=patched):
         cfg = m._build_run_config(SELECTIONS, checkpoint=None)
     assert cfg["checkpoint_enabled"] is True  # not clobbered back to False
 
 
 @pytest.mark.parametrize("flag", [True, False])
 def test_checkpoint_flag_overrides_env(flag):
-    patched = dict(m.DEFAULT_CONFIG, checkpoint_enabled=not flag)
-    with mock.patch.object(m, "DEFAULT_CONFIG", patched):
+    patched = m.build_hydrology_config()
+    patched["checkpoint_enabled"] = not flag
+    with mock.patch.object(m, "build_hydrology_config", return_value=patched):
         cfg = m._build_run_config(SELECTIONS, checkpoint=flag)
     assert cfg["checkpoint_enabled"] is flag
+
+
+def test_hydrology_runtime_config_is_shared_with_cli():
+    cfg = m._build_run_config(SELECTIONS, checkpoint=None)
+    assert cfg["rag_enabled"] is True
+    assert Path(cfg["rag_knowledge_dir"]).parts[-2:] == ("runtime", "knowledge")
+    assert cfg["tool_vendors"]["get_rainfall_forecast"] == "online_api,local_csv"
+    assert cfg["weather_cache_ttl_seconds"] == 900
+    assert Path(cfg["results_dir"]).name == "results"

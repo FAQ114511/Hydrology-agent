@@ -6,30 +6,31 @@ from tradingagents.dataflows.interface import route_to_vendor
 
 
 @tool
-def get_indicators(
-    symbol: Annotated[str, "ticker symbol of the company"],
-    indicator: Annotated[str, "technical indicator to get the analysis and report of"],
-    curr_date: Annotated[str, "The current trading date you are trading on, YYYY-mm-dd"],
-    look_back_days: Annotated[int, "how many days to look back"] = 30,
+def get_hydrology_indicators(
+    station: Annotated[str, "水文站点编号"],
+    indicator: Annotated[str, "要查询的水文趋势指标名"],
+    curr_date: Annotated[str, "当前分析日期，yyyy-mm-dd 格式"],
+    look_back_days: Annotated[int, "向前回溯多少天"] = 30,
 ) -> str:
     """
-    Retrieve a single technical indicator for a given ticker symbol.
-    Uses the configured technical_indicators vendor.
+    获取给定水文站点在回溯窗口内的单个趋势指标序列。
+    使用已配置的 technical_indicators 厂商。
     Args:
-        symbol (str): Ticker symbol of the company, e.g. AAPL, TSM
-        indicator (str): A single technical indicator name, e.g. 'rsi', 'macd'. Call this tool once per indicator.
-        curr_date (str): The current trading date you are trading on, YYYY-mm-dd
-        look_back_days (int): How many days to look back, default is 30
+        station (str): 水文站点编号，例如 XIANGJIANG
+        indicator (str): 单个水文指标名，例如 water_level_ma7、rainfall_sum_7d。每个指标调用一次本工具。
+        curr_date (str): 当前分析日期，yyyy-mm-dd 格式
+        look_back_days (int): 向前回溯多少天，默认 30
     Returns:
-        str: A formatted dataframe containing the technical indicators for the specified ticker symbol and indicator.
+        str: 指定指标在回溯窗口内的格式化序列。
     """
-    # LLMs sometimes pass multiple indicators as a comma-separated string;
-    # split and process each individually.
+    # LLM 有时会把多个指标用逗号拼接传入；逐个拆分处理。
     indicators = [i.strip().lower() for i in indicator.split(",") if i.strip()]
     results = []
     for ind in indicators:
         try:
-            results.append(route_to_vendor("get_indicators", symbol, ind, curr_date, look_back_days))
+            results.append(
+                route_to_vendor("get_hydrology_indicators", station, ind, curr_date, look_back_days)
+            )
         except ValueError as e:
             results.append(str(e))
     return "\n\n".join(results)

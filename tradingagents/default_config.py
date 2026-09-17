@@ -1,6 +1,8 @@
+import copy
 import os
 
 _TRADINGAGENTS_HOME = os.path.join(os.path.expanduser("~"), ".tradingagents")
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 
 # Single source of truth for env-var → config-key overrides. To expose
 # a new config key for environment-based override, add a row here — no
@@ -16,7 +18,6 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_MAX_DEBATE_ROUNDS":    "max_debate_rounds",
     "TRADINGAGENTS_MAX_RISK_ROUNDS":      "max_risk_discuss_rounds",
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
-    "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
     "TRADINGAGENTS_LLM_MAX_RETRIES":      "llm_max_retries",
     "TRADINGAGENTS_MAX_TOKENS":           "max_tokens",
@@ -74,10 +75,6 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
     "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")),
     "memory_log_path": os.getenv("TRADINGAGENTS_MEMORY_LOG_PATH", os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md")),
-    # Optional cap on the number of resolved memory log entries. When set,
-    # the oldest resolved entries are pruned once this limit is exceeded.
-    # Pending entries are never pruned. None disables rotation entirely.
-    "memory_log_max_entries": None,
     # LLM settings
     "llm_provider": "openai",
     "deep_think_llm": "gpt-5.6",
@@ -116,55 +113,57 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
-    # News / data fetching parameters
-    # Increase for longer lookback strategies or to broaden macro coverage;
-    # decrease to reduce token usage in agent prompts.
-    "news_article_limit": 20,             # max articles per ticker (ticker-news)
-    "global_news_article_limit": 10,      # max articles for global/macro news
-    "global_news_lookback_days": 7,       # macro news lookback window
-    # Search queries used by get_global_news for macro headlines. Extend or
-    # replace to broaden geographic / sector coverage.
-    "global_news_queries": [
-        "Federal Reserve interest rates inflation",
-        "S&P 500 earnings GDP economic outlook",
-        "geopolitical risk trade war sanctions",
-        "ECB Bank of England BOJ central bank policy",
-        "oil commodities supply chain energy",
-    ],
+    # 资料获取参数：数值越大，回溯范围越广，但提示词 token 占用也越高。
+    "news_article_limit": 20,             # 单个站点的资料条目上限
+    "global_news_article_limit": 10,      # 区域/宏观资料条目上限
+    "global_news_lookback_days": 7,       # 区域资料回溯天数
     # Data vendor configuration
-    # Category-level configuration (default for all tools in category).
-    # The configured value is the exact vendor chain — requests are NOT silently
-    # routed to vendors you didn't choose. For ordered fallback, list several,
-    # e.g. "yfinance,alpha_vantage". "default" uses all available vendors.
+    # 本项目唯一数据源为本地 CSV，所有工具类别统一路由到 local_csv。
     "data_vendors": {
-        "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
-        "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
-        "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
-        "news_data": "yfinance",             # Options: alpha_vantage, yfinance
-        "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
-        "prediction_markets": "polymarket",  # Options: polymarket (keyless)
+        "core_stock_apis": "local_csv",
+        "technical_indicators": "local_csv",
+        "fundamental_data": "local_csv",
+        "news_data": "local_csv",
+        "macro_data": "local_csv",
+        "prediction_markets": "local_csv",
     },
     # Tool-level configuration (takes precedence over category-level)
-    "tool_vendors": {
-        # Example: "get_stock_data": "alpha_vantage",  # Override category default
-    },
-    # Benchmark for alpha calculation in the reflection layer.
-    # ``benchmark_ticker`` (when set) overrides the suffix map for all
-    # tickers; leave it None to use ``benchmark_map`` for auto-detection
-    # based on the ticker's exchange suffix. SPY remains the US default
-    # so the reflection label keeps reading "Alpha vs SPY" for US tickers
-    # while non-US tickers get their regional index automatically.
-    "benchmark_ticker": None,
-    "benchmark_map": {
-        ".NS":  "^NSEI",       # NSE India (Nifty 50)
-        ".BO":  "^BSESN",      # BSE India (Sensex)
-        ".T":   "^N225",       # Tokyo (Nikkei 225)
-        ".HK":  "^HSI",        # Hong Kong (Hang Seng)
-        ".L":   "^FTSE",       # London (FTSE 100)
-        ".TO":  "^GSPTSE",     # Toronto (TSX Composite)
-        ".AX":  "^AXJO",       # Australia (ASX 200)
-        ".SS":  "000001.SS",   # Shanghai (SSE Composite)
-        ".SZ":  "399001.SZ",   # Shenzhen (SZSE Component)
-        "":     "SPY",         # default for US-listed tickers (no suffix)
-    },
+    "tool_vendors": {},
 })
+
+
+def build_hydrology_config() -> dict:
+    """Return the shared runtime configuration for hydrology analyses."""
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    runtime_dir = os.path.join(_PROJECT_ROOT, "runtime")
+
+    config["rag_enabled"] = True
+    config["rag_knowledge_dir"] = os.path.join(runtime_dir, "knowledge")
+    config["rag_memory_enabled"] = True
+    config["rag_top_k"] = 5
+    config["rag_mode"] = "keyword"
+    config["memory_log_path"] = os.path.join(runtime_dir, "memory", "hydrology_memory.md")
+    config["results_dir"] = os.path.join(_PROJECT_ROOT, "results")
+    config["data_cache_dir"] = os.path.join(runtime_dir, "cache")
+
+    config["weather_api_timeout"] = 10
+    config["weather_api_retries"] = 2
+    config["weather_retry_backoff_seconds"] = 0.2
+    config["weather_cache_ttl_seconds"] = 900
+    config["weather_cache_dir"] = os.path.join(runtime_dir, "cache", "weather")
+    config["weather_fallback_to_local"] = True
+
+    config["data_vendors"] = {
+        "core_stock_apis": "local_csv",
+        "technical_indicators": "local_csv",
+        "fundamental_data": "local_csv",
+        "news_data": "online_api,local_csv",
+        "macro_data": "local_csv",
+        "prediction_markets": "local_csv",
+    }
+    config["tool_vendors"] = {
+        "get_rainfall_forecast": "online_api,local_csv",
+        "get_weather_warning": "local_csv",
+        "get_social_impact": "local_csv",
+    }
+    return config

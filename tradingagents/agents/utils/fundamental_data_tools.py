@@ -6,74 +6,74 @@ from tradingagents.dataflows.interface import route_to_vendor
 
 
 @tool
-def get_fundamentals(
-    ticker: Annotated[str, "ticker symbol"],
-    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
+def get_environment_risk(
+    station: Annotated[str, "水文站点编号"],
+    curr_date: Annotated[str, "当前研判日期，yyyy-mm-dd"],
 ) -> str:
     """
-    Retrieve comprehensive fundamental data for a given ticker symbol.
-    Uses the configured fundamental_data vendor.
+    获取给定站点的环境风险数据。
+    使用已配置的 fundamental_data 厂商。
     Args:
-        ticker (str): Ticker symbol of the company
-        curr_date (str): Current date you are trading at, yyyy-mm-dd
+        station (str): 水文站点编号
+        curr_date (str): 当前研判日期，yyyy-mm-dd
     Returns:
-        str: A formatted report containing comprehensive fundamental data
+        str: 包含环境风险数据的格式化报告
     """
-    return route_to_vendor("get_fundamentals", ticker, curr_date)
+    return route_to_vendor("get_environment_risk", station, curr_date)
 
 
 @tool
-def get_balance_sheet(
-    ticker: Annotated[str, "ticker symbol"],
-    freq: Annotated[str, "reporting frequency: annual/quarterly"] = "quarterly",
-    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"] = None,
+def get_water_storage(
+    station: Annotated[str, "水文站点编号"],
+    freq: Annotated[str, "报告频率：annual/quarterly"] = "quarterly",
+    curr_date: Annotated[str, "当前研判日期，yyyy-mm-dd"] = None,
 ) -> str:
     """
-    Retrieve balance sheet data for a given ticker symbol.
-    Uses the configured fundamental_data vendor.
+    获取给定站点的蓄水/库容数据。
+    使用已配置的 fundamental_data 厂商。
     Args:
-        ticker (str): Ticker symbol of the company
-        freq (str): Reporting frequency: annual/quarterly (default quarterly)
-        curr_date (str): Current date you are trading at, yyyy-mm-dd
+        station (str): 水文站点编号
+        freq (str): 报告频率：annual/quarterly（默认 quarterly）
+        curr_date (str): 当前研判日期，yyyy-mm-dd
     Returns:
-        str: A formatted report containing balance sheet data
+        str: 包含蓄水/库容数据的格式化报告
     """
-    return route_to_vendor("get_balance_sheet", ticker, freq, curr_date)
+    return route_to_vendor("get_water_storage", station, freq, curr_date)
 
 
 @tool
-def get_cashflow(
-    ticker: Annotated[str, "ticker symbol"],
-    freq: Annotated[str, "reporting frequency: annual/quarterly"] = "quarterly",
-    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"] = None,
+def get_river_flow(
+    station: Annotated[str, "水文站点编号"],
+    freq: Annotated[str, "报告频率：annual/quarterly"] = "quarterly",
+    curr_date: Annotated[str, "当前研判日期，yyyy-mm-dd"] = None,
 ) -> str:
     """
-    Retrieve cash flow statement data for a given ticker symbol.
-    Uses the configured fundamental_data vendor.
+    获取给定站点的河道流量明细。
+    使用已配置的 fundamental_data 厂商。
     Args:
-        ticker (str): Ticker symbol of the company
-        freq (str): Reporting frequency: annual/quarterly (default quarterly)
-        curr_date (str): Current date you are trading at, yyyy-mm-dd
+        station (str): 水文站点编号
+        freq (str): 报告频率：annual/quarterly（默认 quarterly）
+        curr_date (str): 当前研判日期，yyyy-mm-dd
     Returns:
-        str: A formatted report containing cash flow statement data
+        str: 包含河道流量明细的格式化报告
     """
-    return route_to_vendor("get_cashflow", ticker, freq, curr_date)
+    return route_to_vendor("get_river_flow", station, freq, curr_date)
 
 
 @tool
-def get_income_statement(
-    ticker: Annotated[str, "ticker symbol"],
-    freq: Annotated[str, "reporting frequency: annual/quarterly"] = "quarterly",
-    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"] = None,
+def get_soil_moisture(
+    station: Annotated[str, "水文站点编号"],
+    freq: Annotated[str, "报告频率：annual/quarterly"] = "quarterly",
+    curr_date: Annotated[str, "当前研判日期，yyyy-mm-dd"] = None,
 ) -> str:
     """
-    Retrieve income statement data for a given ticker symbol.
-    Uses the configured fundamental_data vendor.
+    获取给定站点的土壤墒情数据。
+    使用已配置的 fundamental_data 厂商。
     Args:
-        ticker (str): Ticker symbol of the company
-        freq (str): Reporting frequency: annual/quarterly (default quarterly)
-        curr_date (str): Current date you are trading at, yyyy-mm-dd
+        station (str): 水文站点编号
+        freq (str): 报告频率：annual/quarterly（默认 quarterly）
+        curr_date (str): 当前研判日期，yyyy-mm-dd
     Returns:
-        str: A formatted report containing income statement data
+        str: 包含土壤墒情数据的格式化报告
     """
-    return route_to_vendor("get_income_statement", ticker, freq, curr_date)
+    return route_to_vendor("get_soil_moisture", station, freq, curr_date)

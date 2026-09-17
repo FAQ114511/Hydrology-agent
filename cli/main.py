@@ -30,9 +30,8 @@ from cli.utils import (
     ask_output_language,
     ask_qwen_region,
     confirm_ollama_endpoint,
-    detect_asset_type,
     ensure_api_key,
-    get_ticker,
+    get_station,
     prompt_openai_compatible_url,
     resolve_backend_url,
     select_analysts,
@@ -41,17 +40,21 @@ from cli.utils import (
     select_research_depth,
     select_shallow_thinking_agent,
 )
-from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.default_config import DEFAULT_CONFIG, build_hydrology_config
 from tradingagents.graph.analyst_execution import (
     AnalystWallTimeTracker,
     build_analyst_execution_plan,
-    get_initial_analyst_node,
     sync_analyst_tracker_from_chunk,
 )
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.reporting import write_report_tree
 
 console = Console()
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 # prompt_toolkit's win32 output module is importable only on Windows (it asserts
 # the platform at import time), so gate on the platform rather than catching the
@@ -66,8 +69,8 @@ else:
     _NO_CONSOLE_ERRORS = ()
 
 app = typer.Typer(
-    name="TradingAgents",
-    help="TradingAgents CLI: Multi-Agents LLM Financial Trading Framework",
+    name="HydrologyAgents",
+    help="HydrologyAgents CLI: Multi-Agent Flood Warning Framework",
     add_completion=True,  # Enable shell completion
 )
 
@@ -76,31 +79,31 @@ app = typer.Typer(
 class MessageBuffer:
     # Fixed teams that always run (not user-selectable)
     FIXED_AGENTS = {
-        "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
-        "Trading Team": ["Trader"],
-        "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
-        "Portfolio Management": ["Portfolio Manager"],
+        "风险研判": ["风险研判员", "安全研判员", "研判经理"],
+        "处置方案": ["处置员"],
+        "响应研判": ["激进型研判员", "保守型研判员", "中立型研判员"],
+        "最终决策": ["预警决策员"],
     }
 
     # Analyst name mapping
     ANALYST_MAPPING = {
-        "market": "Market Analyst",
-        "social": "Sentiment Analyst",
-        "news": "News Analyst",
-        "fundamentals": "Fundamentals Analyst",
+        "market": "水文分析师",
+        "social": "社会影响分析师",
+        "news": "气象分析师",
+        "fundamentals": "环境风险分析师",
     }
 
     # Report section mapping: section -> (analyst_key for filtering, finalizing_agent)
     # analyst_key: which analyst selection controls this section (None = always included)
     # finalizing_agent: which agent must be "completed" for this report to count as done
     REPORT_SECTIONS = {
-        "market_report": ("market", "Market Analyst"),
-        "sentiment_report": ("social", "Sentiment Analyst"),
-        "news_report": ("news", "News Analyst"),
-        "fundamentals_report": ("fundamentals", "Fundamentals Analyst"),
-        "investment_plan": (None, "Research Manager"),
-        "trader_investment_plan": (None, "Trader"),
-        "final_trade_decision": (None, "Portfolio Manager"),
+        "hydrology_report": ("market", "水文分析师"),
+        "social_impact_report": ("social", "社会影响分析师"),
+        "meteorology_report": ("news", "气象分析师"),
+        "environment_report": ("fundamentals", "环境风险分析师"),
+        "assessment_plan": (None, "研判经理"),
+        "dispatch_plan": (None, "处置员"),
+        "final_alert_decision": (None, "预警决策员"),
     }
 
     def __init__(self, max_length=100):
@@ -111,6 +114,7 @@ class MessageBuffer:
         self.agent_status = {}
         self.current_agent = None
         self.report_sections = {}
+        self.response_debate_report = None
         self.selected_analysts = []
         self._processed_message_ids = set()
 
@@ -144,6 +148,7 @@ class MessageBuffer:
         # Reset other state
         self.current_report = None
         self.final_report = None
+        self.response_debate_report = None
         self.current_agent = None
         self.messages.clear()
         self.tool_calls.clear()
@@ -188,6 +193,11 @@ class MessageBuffer:
             self.report_sections[section_name] = content
             self._update_current_report()
 
+    def update_response_debate(self, content):
+        self.response_debate_report = content
+        self.current_report = f"### 响应处置辩论\n{content}"
+        self._update_final_report()
+
     def _update_current_report(self):
         # For the panel display, only show the most recently updated section
         latest_section = None
@@ -202,13 +212,13 @@ class MessageBuffer:
         if latest_section and latest_content:
             # Format the current section for display
             section_titles = {
-                "market_report": "Market Analysis",
-                "sentiment_report": "Social Sentiment",
-                "news_report": "News Analysis",
-                "fundamentals_report": "Fundamentals Analysis",
-                "investment_plan": "Research Team Decision",
-                "trader_investment_plan": "Trading Team Plan",
-                "final_trade_decision": "Portfolio Management Decision",
+                "hydrology_report": "水文分析",
+                "social_impact_report": "社会影响分析",
+                "meteorology_report": "气象分析",
+                "environment_report": "环境风险分析",
+                "assessment_plan": "风险研判结论",
+                "dispatch_plan": "处置方案",
+                "final_alert_decision": "最终预警决策",
             }
             self.current_report = (
                 f"### {section_titles[latest_section]}\n{latest_content}"
@@ -221,40 +231,46 @@ class MessageBuffer:
         report_parts = []
 
         # Analyst Team Reports - use .get() to handle missing sections
-        analyst_sections = ["market_report", "sentiment_report", "news_report", "fundamentals_report"]
+        analyst_sections = [
+            "hydrology_report",
+            "social_impact_report",
+            "meteorology_report",
+            "environment_report",
+        ]
         if any(self.report_sections.get(section) for section in analyst_sections):
-            report_parts.append("## Analyst Team Reports")
-            if self.report_sections.get("market_report"):
+            report_parts.append("## 一、专业分析")
+            if self.report_sections.get("hydrology_report"):
                 report_parts.append(
-                    f"### Market Analysis\n{self.report_sections['market_report']}"
+                    f"### 水文分析师\n{self.report_sections['hydrology_report']}"
                 )
-            if self.report_sections.get("sentiment_report"):
+            if self.report_sections.get("social_impact_report"):
                 report_parts.append(
-                    f"### Social Sentiment\n{self.report_sections['sentiment_report']}"
+                    f"### 社会影响分析师\n{self.report_sections['social_impact_report']}"
                 )
-            if self.report_sections.get("news_report"):
+            if self.report_sections.get("meteorology_report"):
                 report_parts.append(
-                    f"### News Analysis\n{self.report_sections['news_report']}"
+                    f"### 气象分析师\n{self.report_sections['meteorology_report']}"
                 )
-            if self.report_sections.get("fundamentals_report"):
+            if self.report_sections.get("environment_report"):
                 report_parts.append(
-                    f"### Fundamentals Analysis\n{self.report_sections['fundamentals_report']}"
+                    f"### 环境风险分析师\n{self.report_sections['environment_report']}"
                 )
 
-        # Research Team Reports
-        if self.report_sections.get("investment_plan"):
-            report_parts.append("## Research Team Decision")
-            report_parts.append(f"{self.report_sections['investment_plan']}")
+        if self.report_sections.get("assessment_plan"):
+            report_parts.append("## 二、风险研判结论")
+            report_parts.append(f"{self.report_sections['assessment_plan']}")
 
-        # Trading Team Reports
-        if self.report_sections.get("trader_investment_plan"):
-            report_parts.append("## Trading Team Plan")
-            report_parts.append(f"{self.report_sections['trader_investment_plan']}")
+        if self.report_sections.get("dispatch_plan"):
+            report_parts.append("## 三、处置方案")
+            report_parts.append(f"{self.report_sections['dispatch_plan']}")
 
-        # Portfolio Management Decision
-        if self.report_sections.get("final_trade_decision"):
-            report_parts.append("## Portfolio Management Decision")
-            report_parts.append(f"{self.report_sections['final_trade_decision']}")
+        if self.response_debate_report:
+            report_parts.append("## 四、响应处置辩论")
+            report_parts.append(self.response_debate_report)
+
+        if self.report_sections.get("final_alert_decision"):
+            report_parts.append("## 五、最终预警决策")
+            report_parts.append(f"{self.report_sections['final_alert_decision']}")
 
         self.final_report = "\n\n".join(report_parts) if report_parts else None
 
@@ -289,9 +305,9 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     # Header with welcome message
     layout["header"].update(
         Panel(
-            "[bold green]Welcome to TradingAgents CLI[/bold green]\n"
-            "[dim]© [Tauric Research](https://github.com/TauricResearch)[/dim]",
-            title="Welcome to TradingAgents",
+            "[bold green]Welcome to HydrologyAgents CLI[/bold green]\n"
+            "[dim]Multi-Agent Flood Warning Framework[/dim]",
+            title="Welcome to HydrologyAgents",
             border_style="green",
             padding=(1, 2),
             expand=True,
@@ -314,16 +330,16 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
 
     # Group agents by team - filter to only include agents in agent_status
     all_teams = {
-        "Analyst Team": [
-            "Market Analyst",
-            "Sentiment Analyst",
-            "News Analyst",
-            "Fundamentals Analyst",
+        "专业分析": [
+            "水文分析师",
+            "社会影响分析师",
+            "气象分析师",
+            "环境风险分析师",
         ],
-        "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
-        "Trading Team": ["Trader"],
-        "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
-        "Portfolio Management": ["Portfolio Manager"],
+        "风险研判": ["风险研判员", "安全研判员", "研判经理"],
+        "处置方案": ["处置员"],
+        "响应研判": ["激进型研判员", "保守型研判员", "中立型研判员"],
+        "最终决策": ["预警决策员"],
     }
 
     # Filter teams to only include agents that are in agent_status
@@ -482,7 +498,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     # Elapsed time
     if start_time:
         elapsed = time.time() - start_time
-        elapsed_str = f"\u23f1 {int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
+        elapsed_str = f"time {int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
         stats_parts.append(elapsed_str)
 
     stats_table = Table(show_header=False, box=None, padding=(0, 2), expand=True)
@@ -500,9 +516,9 @@ def get_user_selections():
 
     # Create welcome box content
     welcome_content = f"{welcome_ascii}\n"
-    welcome_content += "[bold green]TradingAgents: Multi-Agents LLM Financial Trading Framework - CLI[/bold green]\n\n"
+    welcome_content += "[bold green]HydrologyAgents: Multi-Agent Flood Warning Framework - CLI[/bold green]\n\n"
     welcome_content += "[bold]Workflow Steps:[/bold]\n"
-    welcome_content += "I. Analyst Team → II. Research Team → III. Trader → IV. Risk Management → V. Portfolio Management\n\n"
+    welcome_content += "I. 专业分析 → II. 风险研判 → III. 处置方案 → IV. 响应研判 → V. 最终决策\n\n"
     welcome_content += (
         "[dim]Built by [Tauric Research](https://github.com/TauricResearch)[/dim]"
     )
@@ -512,8 +528,8 @@ def get_user_selections():
         welcome_content,
         border_style="green",
         padding=(1, 2),
-        title="Welcome to TradingAgents",
-        subtitle="Multi-Agents LLM Financial Trading Framework",
+        title="Welcome to HydrologyAgents",
+        subtitle="Multi-Agent Flood Warning Framework",
     )
     console.print(Align.center(welcome_box))
     console.print()
@@ -545,22 +561,15 @@ def get_user_selections():
         console.print(create_question_box(box_title, box_body))
         return prompt_fn()
 
-    # Step 1: Ticker symbol
+    # Step 1: Hydrology station
     console.print(
         create_question_box(
-            "Step 1: Ticker Symbol",
-            "Enter the ticker, with exchange suffix when needed (e.g. SPY, 0700.HK, BTC-USD)",
-            "SPY",
+            "Step 1: Hydrology Station",
+            "Enter a station ID from runtime/knowledge/stations.json",
+            "XIANGJIANG",
         )
     )
-    selected_ticker = get_ticker()
-    asset_type = detect_asset_type(selected_ticker)
-    # Only announce when it's not the default stock path, to avoid printing
-    # "stock" on every run.
-    if asset_type.value != "stock":
-        console.print(
-            f"[green]Detected asset type:[/green] {asset_type.value}"
-        )
+    selected_station = get_station()
 
     # Step 2: Analysis date
     default_date = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -591,10 +600,10 @@ def get_user_selections():
     # Step 4: Select analysts
     console.print(
         create_question_box(
-            "Step 4: Analysts Team", "Select your LLM analyst agents for the analysis"
+            "Step 4: Analysts Team", "Select your hydrology analyst agents for the analysis"
         )
     )
-    selected_analysts = select_analysts(asset_type)
+    selected_analysts = select_analysts()
     console.print(
         f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
     )
@@ -725,8 +734,8 @@ def get_user_selections():
         )
 
     return {
-        "ticker": selected_ticker,
-        "asset_type": asset_type.value,
+        "station": selected_station,
+        "asset_type": "flood",
         "analysis_date": analysis_date,
         "analysts": selected_analysts,
         "research_depth": selected_research_depth,
@@ -760,92 +769,91 @@ def get_analysis_date():
             )
 
 
-def save_report_to_disk(final_state, ticker: str, save_path: Path):
+def save_report_to_disk(final_state, station: str, save_path: Path):
     """Save the complete analysis report to disk (shared CLI/API writer)."""
-    return write_report_tree(final_state, ticker, save_path)
+    return write_report_tree(final_state, station, save_path)
 
 
 def display_complete_report(final_state):
     """Display the complete analysis report sequentially (avoids truncation)."""
     console.print()
-    console.print(Rule("Complete Analysis Report", style="bold green"))
+    console.print(Rule("Complete Hydrology Report", style="bold green"))
 
-    # I. Analyst Team Reports
+    # I. Professional analysis
     analysts = []
-    if final_state.get("market_report"):
-        analysts.append(("Market Analyst", final_state["market_report"]))
-    if final_state.get("sentiment_report"):
-        analysts.append(("Sentiment Analyst", final_state["sentiment_report"]))
-    if final_state.get("news_report"):
-        analysts.append(("News Analyst", final_state["news_report"]))
-    if final_state.get("fundamentals_report"):
-        analysts.append(("Fundamentals Analyst", final_state["fundamentals_report"]))
+    if final_state.get("hydrology_report"):
+        analysts.append(("水文分析师", final_state["hydrology_report"]))
+    if final_state.get("social_impact_report"):
+        analysts.append(("社会影响分析师", final_state["social_impact_report"]))
+    if final_state.get("meteorology_report"):
+        analysts.append(("气象分析师", final_state["meteorology_report"]))
+    if final_state.get("environment_report"):
+        analysts.append(("环境风险分析师", final_state["environment_report"]))
     if analysts:
-        console.print(Panel("[bold]I. Analyst Team Reports[/bold]", border_style="cyan"))
+        console.print(Panel("[bold]一、专业分析[/bold]", border_style="cyan"))
         for title, content in analysts:
             console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
 
-    # II. Research Team Reports
-    if final_state.get("investment_debate_state"):
-        debate = final_state["investment_debate_state"]
-        research = []
-        if debate.get("bull_history"):
-            research.append(("Bull Researcher", debate["bull_history"]))
-        if debate.get("bear_history"):
-            research.append(("Bear Researcher", debate["bear_history"]))
-        if debate.get("judge_decision"):
-            research.append(("Research Manager", debate["judge_decision"]))
-        if research:
-            console.print(Panel("[bold]II. Research Team Decision[/bold]", border_style="magenta"))
-            for title, content in research:
-                console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
-
-    # III. Trading Team
-    if final_state.get("trader_investment_plan"):
-        console.print(Panel("[bold]III. Trading Team Plan[/bold]", border_style="yellow"))
-        console.print(Panel(Markdown(final_state["trader_investment_plan"]), title="Trader", border_style="blue", padding=(1, 2)))
-
-    # IV. Risk Management Team
+    # II. Risk assessment
     if final_state.get("risk_debate_state"):
-        risk = final_state["risk_debate_state"]
-        risk_reports = []
-        if risk.get("aggressive_history"):
-            risk_reports.append(("Aggressive Analyst", risk["aggressive_history"]))
-        if risk.get("conservative_history"):
-            risk_reports.append(("Conservative Analyst", risk["conservative_history"]))
-        if risk.get("neutral_history"):
-            risk_reports.append(("Neutral Analyst", risk["neutral_history"]))
-        if risk_reports:
-            console.print(Panel("[bold]IV. Risk Management Team Decision[/bold]", border_style="red"))
-            for title, content in risk_reports:
+        debate = final_state["risk_debate_state"]
+        assessment = []
+        if debate.get("high_risk_history"):
+            assessment.append(("风险研判员", debate["high_risk_history"]))
+        if debate.get("safety_history"):
+            assessment.append(("安全研判员", debate["safety_history"]))
+        if debate.get("judge_decision"):
+            assessment.append(("研判经理", debate["judge_decision"]))
+        if assessment:
+            console.print(Panel("[bold]二、风险研判[/bold]", border_style="magenta"))
+            for title, content in assessment:
                 console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
 
-        # V. Portfolio Manager Decision
-        if risk.get("judge_decision"):
-            console.print(Panel("[bold]V. Portfolio Manager Decision[/bold]", border_style="green"))
-            console.print(Panel(Markdown(risk["judge_decision"]), title="Portfolio Manager", border_style="blue", padding=(1, 2)))
+    # III. Dispatch plan
+    if final_state.get("dispatch_plan"):
+        console.print(Panel("[bold]三、处置方案[/bold]", border_style="yellow"))
+        console.print(Panel(Markdown(final_state["dispatch_plan"]), title="处置员", border_style="blue", padding=(1, 2)))
+
+    # IV. Response debate
+    if final_state.get("response_debate_state"):
+        response = final_state["response_debate_state"]
+        response_reports = []
+        if response.get("aggressive_history"):
+            response_reports.append(("激进型研判员", response["aggressive_history"]))
+        if response.get("conservative_history"):
+            response_reports.append(("保守型研判员", response["conservative_history"]))
+        if response.get("neutral_history"):
+            response_reports.append(("中立型研判员", response["neutral_history"]))
+        if response_reports:
+            console.print(Panel("[bold]四、响应处置辩论[/bold]", border_style="red"))
+            for title, content in response_reports:
+                console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
+
+    # V. Final alert decision
+    if final_state.get("final_alert_decision"):
+        console.print(Panel("[bold]五、最终预警决策[/bold]", border_style="green"))
+        console.print(Panel(Markdown(final_state["final_alert_decision"]), title="预警决策员", border_style="blue", padding=(1, 2)))
 
 
-def update_research_team_status(status):
-    """Update status for research team members (not Trader)."""
-    research_team = ["Bull Researcher", "Bear Researcher", "Research Manager"]
-    for agent in research_team:
+def update_risk_assessment_status(status):
+    """Update status for the risk-assessment team."""
+    for agent in ("风险研判员", "安全研判员", "研判经理"):
         message_buffer.update_agent_status(agent, status)
 
 
 # Ordered list of analysts for status transitions
 ANALYST_ORDER = ["market", "social", "news", "fundamentals"]
 ANALYST_AGENT_NAMES = {
-    "market": "Market Analyst",
-    "social": "Sentiment Analyst",
-    "news": "News Analyst",
-    "fundamentals": "Fundamentals Analyst",
+    "market": "水文分析师",
+    "social": "社会影响分析师",
+    "news": "气象分析师",
+    "fundamentals": "环境风险分析师",
 }
 ANALYST_REPORT_MAP = {
-    "market": "market_report",
-    "social": "sentiment_report",
-    "news": "news_report",
-    "fundamentals": "fundamentals_report",
+    "market": "hydrology_report",
+    "social": "social_impact_report",
+    "news": "meteorology_report",
+    "fundamentals": "environment_report",
 }
 
 
@@ -858,7 +866,7 @@ def update_analyst_statuses(message_buffer, chunk, wall_time_tracker=None):
     - Analysts with reports = completed
     - First analyst without report = in_progress
     - Remaining analysts without reports = pending
-    - When all analysts done, set Bull Researcher to in_progress
+    - When all analysts are done, set the risk assessors to in_progress
     """
     selected = message_buffer.selected_analysts
     found_active = False
@@ -892,9 +900,9 @@ def update_analyst_statuses(message_buffer, chunk, wall_time_tracker=None):
     if (
         not found_active
         and selected
-        and message_buffer.agent_status.get("Bull Researcher") == "pending"
+        and message_buffer.agent_status.get("风险研判员") == "pending"
     ):
-        message_buffer.update_agent_status("Bull Researcher", "in_progress")
+        update_risk_assessment_status("in_progress")
 
 def extract_content_string(content):
     """Extract string content from various message formats.
@@ -977,7 +985,7 @@ def _build_run_config(selections: dict, checkpoint: bool | None) -> dict:
     Round counts and checkpoint follow "explicit env/flag wins": an env-applied
     value on DEFAULT_CONFIG is preserved unless the user overrode it on the CLI.
     """
-    config = DEFAULT_CONFIG.copy()
+    config = build_hydrology_config()
     # Research depth sets both round counts, but an explicit env override
     # (TRADINGAGENTS_MAX_DEBATE_ROUNDS / _MAX_RISK_ROUNDS) wins over the
     # interactive selection — leave the env-applied value in place (#977).
@@ -1031,7 +1039,7 @@ def run_analysis(checkpoint: bool | None = None):
     start_time = time.time()
 
     # Create result directory
-    results_dir = Path(config["results_dir"]) / selections["ticker"] / selections["analysis_date"]
+    results_dir = Path(config["results_dir"]) / selections["station"] / selections["analysis_date"]
     results_dir.mkdir(parents=True, exist_ok=True)
     report_dir = results_dir / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -1086,9 +1094,7 @@ def run_analysis(checkpoint: bool | None = None):
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
         # Add initial messages
-        message_buffer.add_message("System", f"Selected ticker: {selections['ticker']}")
-        if selections["asset_type"] != "stock":
-            message_buffer.add_message("System", f"Detected asset type: {selections['asset_type']}")
+        message_buffer.add_message("System", f"Selected station: {selections['station']}")
         message_buffer.add_message(
             "System", f"Analysis date: {selections['analysis_date']}"
         )
@@ -1099,29 +1105,27 @@ def run_analysis(checkpoint: bool | None = None):
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
         # Update agent status to in_progress for the first analyst
-        first_analyst = get_initial_analyst_node(analyst_execution_plan)
+        first_analyst = ANALYST_AGENT_NAMES[selected_analyst_keys[0]]
         message_buffer.update_agent_status(first_analyst, "in_progress")
         analyst_wall_time_tracker.mark_started(selected_analyst_keys[0])
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
         # Create spinner text
         spinner_text = (
-            f"Analyzing {selections['ticker']} on {selections['analysis_date']}..."
+            f"Analyzing {selections['station']} on {selections['analysis_date']}..."
         )
         update_display(layout, spinner_text, stats_handler=stats_handler, start_time=start_time)
 
-        # Initialize state and get graph args with callbacks.
-        # Resolve the instrument identity once here so all agents anchor to
-        # the real company (#814); the CLI builds state directly rather than
-        # going through propagate(), so this must happen on the CLI path too.
-        instrument_context = graph.resolve_instrument_context(
-            selections["ticker"], selections["asset_type"]
+        # Initialize state and get graph args with callbacks. The CLI builds the
+        # state directly, so it resolves the station context explicitly.
+        area_context = graph.resolve_area_context(
+            selections["station"], selections["asset_type"]
         )
         init_agent_state = graph.propagator.create_initial_state(
-            selections["ticker"],
+            selections["station"],
             selections["analysis_date"],
             asset_type=selections["asset_type"],
-            instrument_context=instrument_context,
+            area_context=area_context,
         )
         # Pass callbacks to graph config for tool execution tracking
         # (LLM tracking is handled separately via LLM constructor)
@@ -1131,7 +1135,7 @@ def run_analysis(checkpoint: bool | None = None):
         # actually saves and resumes on the CLI path (#1249); a no-op when
         # checkpointing is disabled. Torn down in the finally below.
         checkpoint_tid = graph.begin_checkpoint(
-            selections["ticker"], selections["analysis_date"], selections["asset_type"]
+            selections["station"], selections["analysis_date"], selections["asset_type"]
         )
         if checkpoint_tid is not None:
             args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = checkpoint_tid
@@ -1168,75 +1172,86 @@ def run_analysis(checkpoint: bool | None = None):
                     wall_time_tracker=analyst_wall_time_tracker,
                 )
 
-                # Research Team - Handle Investment Debate State
-                if chunk.get("investment_debate_state"):
-                    debate_state = chunk["investment_debate_state"]
-                    bull_hist = debate_state.get("bull_history", "").strip()
-                    bear_hist = debate_state.get("bear_history", "").strip()
-                    judge = debate_state.get("judge_decision", "").strip()
-
-                    # Only update status when there's actual content
-                    if bull_hist or bear_hist:
-                        update_research_team_status("in_progress")
-                    if bull_hist:
-                        message_buffer.update_report_section(
-                            "investment_plan", f"### Bull Researcher Analysis\n{bull_hist}"
-                        )
-                    if bear_hist:
-                        message_buffer.update_report_section(
-                            "investment_plan", f"### Bear Researcher Analysis\n{bear_hist}"
-                        )
-                    if judge:
-                        message_buffer.update_report_section(
-                            "investment_plan", f"### Research Manager Decision\n{judge}"
-                        )
-                        update_research_team_status("completed")
-                        message_buffer.update_agent_status("Trader", "in_progress")
-
-                # Trading Team
-                if chunk.get("trader_investment_plan"):
-                    message_buffer.update_report_section(
-                        "trader_investment_plan", chunk["trader_investment_plan"]
-                    )
-                    if message_buffer.agent_status.get("Trader") != "completed":
-                        message_buffer.update_agent_status("Trader", "completed")
-                        message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
-
-                # Risk Management Team - Handle Risk Debate State
+                # Risk assessment: high-risk vs. safety debate and manager ruling
                 if chunk.get("risk_debate_state"):
                     risk_state = chunk["risk_debate_state"]
-                    agg_hist = risk_state.get("aggressive_history", "").strip()
-                    con_hist = risk_state.get("conservative_history", "").strip()
-                    neu_hist = risk_state.get("neutral_history", "").strip()
+                    high_risk = risk_state.get("high_risk_history", "").strip()
+                    safety = risk_state.get("safety_history", "").strip()
                     judge = risk_state.get("judge_decision", "").strip()
 
-                    if agg_hist:
-                        if message_buffer.agent_status.get("Aggressive Analyst") != "completed":
-                            message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
+                    if high_risk or safety:
+                        update_risk_assessment_status("in_progress")
+                    assessment_parts = []
+                    if high_risk:
+                        assessment_parts.append(f"### 风险研判员\n{high_risk}")
+                    if safety:
+                        assessment_parts.append(f"### 安全研判员\n{safety}")
+                    if judge:
+                        assessment_parts.append(f"### 研判经理\n{judge}")
+                    if assessment_parts:
                         message_buffer.update_report_section(
-                            "final_trade_decision", f"### Aggressive Analyst Analysis\n{agg_hist}"
+                            "assessment_plan", "\n\n".join(assessment_parts)
                         )
-                    if con_hist:
-                        if message_buffer.agent_status.get("Conservative Analyst") != "completed":
-                            message_buffer.update_agent_status("Conservative Analyst", "in_progress")
+                    if judge:
+                        update_risk_assessment_status("completed")
+                        message_buffer.update_agent_status("处置员", "in_progress")
+
+                # Dispatch plan
+                if chunk.get("dispatch_plan"):
+                    message_buffer.update_report_section(
+                        "dispatch_plan", chunk["dispatch_plan"]
+                    )
+                    if message_buffer.agent_status.get("处置员") != "completed":
+                        message_buffer.update_agent_status("处置员", "completed")
+                        message_buffer.update_agent_status("激进型研判员", "in_progress")
+
+                # Response debate and final alert decision
+                if chunk.get("response_debate_state"):
+                    response_state = chunk["response_debate_state"]
+                    response_reports = []
+                    if response_state.get("aggressive_history"):
+                        response_reports.append(
+                            ("激进型研判员", response_state["aggressive_history"].strip())
+                        )
+                    if response_state.get("conservative_history"):
+                        response_reports.append(
+                            ("保守型研判员", response_state["conservative_history"].strip())
+                        )
+                    if response_state.get("neutral_history"):
+                        response_reports.append(
+                            ("中立型研判员", response_state["neutral_history"].strip())
+                        )
+                    response_parts = [
+                        f"### {name}\n{content}" for name, content in response_reports if content
+                    ]
+                    if response_parts:
+                        message_buffer.update_response_debate("\n\n".join(response_parts))
+                    judge = response_state.get("judge_decision", "").strip()
+                    if judge:
                         message_buffer.update_report_section(
-                            "final_trade_decision", f"### Conservative Analyst Analysis\n{con_hist}"
+                            "final_alert_decision", judge
                         )
-                    if neu_hist:
-                        if message_buffer.agent_status.get("Neutral Analyst") != "completed":
-                            message_buffer.update_agent_status("Neutral Analyst", "in_progress")
+                    for name, content in response_reports:
+                        if content and message_buffer.agent_status.get(name) != "completed":
+                            message_buffer.update_agent_status(name, "in_progress")
+                    if judge and message_buffer.agent_status.get("预警决策员") != "completed":
+                        message_buffer.update_agent_status("预警决策员", "in_progress")
+                        for name in (
+                            "激进型研判员",
+                            "保守型研判员",
+                            "中立型研判员",
+                            "预警决策员",
+                        ):
+                            message_buffer.update_agent_status(name, "completed")
+
+                if chunk.get("final_alert_decision"):
+                    decision = str(chunk["final_alert_decision"]).strip()
+                    current = message_buffer.report_sections.get("final_alert_decision") or ""
+                    if decision and decision not in current:
                         message_buffer.update_report_section(
-                            "final_trade_decision", f"### Neutral Analyst Analysis\n{neu_hist}"
+                            "final_alert_decision",
+                            f"{current}\n\n### 预警决策员\n{decision}".strip(),
                         )
-                    if judge and message_buffer.agent_status.get("Portfolio Manager") != "completed":
-                        message_buffer.update_agent_status("Portfolio Manager", "in_progress")
-                        message_buffer.update_report_section(
-                            "final_trade_decision", f"### Portfolio Manager Decision\n{judge}"
-                        )
-                        message_buffer.update_agent_status("Aggressive Analyst", "completed")
-                        message_buffer.update_agent_status("Conservative Analyst", "completed")
-                        message_buffer.update_agent_status("Neutral Analyst", "completed")
-                        message_buffer.update_agent_status("Portfolio Manager", "completed")
 
                 # Update the display
                 update_display(layout, stats_handler=stats_handler, start_time=start_time)
@@ -1246,7 +1261,7 @@ def run_analysis(checkpoint: bool | None = None):
             # Clean run: drop this run's checkpoint so a later run starts fresh.
             # A mid-stream failure skips this, keeping the checkpoint for resume.
             graph.clear_checkpoint_on_success(
-                selections["ticker"], selections["analysis_date"], selections["asset_type"]
+                selections["station"], selections["analysis_date"], selections["asset_type"]
             )
         finally:
             # Always restore the plain uncheckpointed graph, even on failure.
@@ -1282,14 +1297,14 @@ def run_analysis(checkpoint: bool | None = None):
     save_choice = typer.prompt("Save report?", default="Y").strip().upper()
     if save_choice in ("Y", "YES", ""):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_path = Path.cwd() / "reports" / f"{selections['ticker']}_{timestamp}"
+        default_path = results_dir / f"report_{timestamp}"
         save_path_str = typer.prompt(
             "Save path (press Enter for default)",
             default=str(default_path)
         ).strip()
         save_path = Path(save_path_str)
         try:
-            report_file = save_report_to_disk(final_state, selections["ticker"], save_path)
+            report_file = save_report_to_disk(final_state, selections["station"], save_path)
             console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
             console.print(f"  [dim]Complete report:[/dim] {report_file.name}")
         except Exception as e:
@@ -1317,7 +1332,7 @@ def analyze(
 ):
     if clear_checkpoints:
         from tradingagents.graph.checkpointer import clear_all_checkpoints
-        n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
+        n = clear_all_checkpoints(build_hydrology_config()["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
     try:
         run_analysis(checkpoint=checkpoint)

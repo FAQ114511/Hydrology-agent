@@ -1,31 +1,38 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.utils.agent_utils import (
-    get_balance_sheet,
-    get_cashflow,
-    get_fundamentals,
-    get_income_statement,
-    get_instrument_context_from_state,
+    get_area_context_from_state,
+    get_environment_risk,
     get_language_instruction,
+    get_river_flow,
+    get_soil_moisture,
+    search_flood_knowledge,
+    get_water_storage,
 )
 
 
-def create_fundamentals_analyst(llm):
-    def fundamentals_analyst_node(state):
-        current_date = state["trade_date"]
-        instrument_context = get_instrument_context_from_state(state)
+def create_environment_analyst(llm):
+    def environment_analyst_node(state):
+        current_date = state["analysis_date"]
+        area_context = get_area_context_from_state(state)
 
         tools = [
-            get_fundamentals,
-            get_balance_sheet,
-            get_cashflow,
-            get_income_statement,
+            get_environment_risk,
+            get_water_storage,
+            get_river_flow,
+            get_soil_moisture,
+            search_flood_knowledge,
         ]
 
         system_message = (
-            "You are a researcher tasked with analyzing fundamental information over the past week about a company. Please write a comprehensive report of the company's fundamental information such as financial documents, company profile, basic company financials, and company financial history to gain a full view of the company's fundamental information to inform traders. Make sure to include as much detail as possible. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
-            + " Use the available tools: `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, `get_cashflow`, and `get_income_statement` for specific financial statements."
+            "你是一名环境风险分析师，负责评估站点所在区域的产汇流条件与承灾环境。"
+            "使用 get_environment_risk 获取综合环境风险，使用 get_water_storage、get_river_flow 和"
+            " get_soil_moisture 分别检查蓄水/库容、河道流量和土壤墒情。"
+            "涉及站点警戒阈值、处置规程、承灾规则或历史案例时，调用 search_flood_knowledge；"
+            "使用后必须标注返回的 doc_id 和 source。该工具只补充规则与历史经验，不能替代实时观测。"
+            "报告应覆盖土壤饱和度、蓄水余量、河道行洪能力、地形地质、堤防或低洼区风险、"
+            "可用数据的时效性及数据缺口。工具未提供数据时应明确说明无法判断，不得虚构。"
+            "报告末尾附 Markdown 表格汇总环境因素、当前状态、证据来源和风险影响。"
             + get_language_instruction(),
         )
 
@@ -33,14 +40,10 @@ def create_fundamentals_analyst(llm):
             [
                 (
                     "system",
-                    "You are a helpful AI assistant, collaborating with other assistants."
-                    " Use the provided tools to progress towards answering the question."
-                    " If you are unable to fully answer, that's OK; another assistant with different tools"
-                    " will help where you left off. Execute what you can to make progress."
-                    " If you or any other assistant has the FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** or deliverable,"
-                    " prefix your response with FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** so the team knows to stop."
-                    " You have access to the following tools: {tool_names}."
-                    " Today's date is {current_date}; treat it as 'now' for all analysis and tool-call date ranges. {instrument_context}\n"
+                    "你是与其他智能体协作的环境风险分析助手。使用工具推进分析；数据不足时明确报告缺口。"
+                    "若上下文已包含 FINAL ALERT DECISION: **红色预警/橙色预警/黄色预警/蓝色预警**，则停止继续研判。"
+                    "你可使用以下工具：{tool_names}。"
+                    "当前研判日期为 {current_date}，所有分析与工具日期范围以此为准。{area_context}\n"
                     "{system_message}",
                 ),
                 MessagesPlaceholder(variable_name="messages"),
@@ -50,7 +53,7 @@ def create_fundamentals_analyst(llm):
         prompt = prompt.partial(system_message=system_message)
         prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
         prompt = prompt.partial(current_date=current_date)
-        prompt = prompt.partial(instrument_context=instrument_context)
+        prompt = prompt.partial(area_context=area_context)
 
         chain = prompt | llm.bind_tools(tools)
 
@@ -63,7 +66,7 @@ def create_fundamentals_analyst(llm):
 
         return {
             "messages": [result],
-            "fundamentals_report": report,
+            "environment_report": report,
         }
 
-    return fundamentals_analyst_node
+    return environment_analyst_node

@@ -7,18 +7,18 @@ from langgraph.prebuilt import ToolNode
 
 from tradingagents.agents import (
     create_aggressive_debator,
-    create_bear_researcher,
-    create_bull_researcher,
+    create_alert_manager,
+    create_assessment_manager,
     create_conservative_debator,
-    create_fundamentals_analyst,
-    create_market_analyst,
+    create_dispatcher,
+    create_environment_analyst,
+    create_hydrology_analyst,
+    create_meteorology_analyst,
     create_msg_delete,
     create_neutral_debator,
-    create_news_analyst,
-    create_portfolio_manager,
-    create_research_manager,
-    create_sentiment_analyst,
-    create_trader,
+    create_risk_researcher,
+    create_safety_researcher,
+    create_social_impact_analyst,
 )
 from tradingagents.agents.utils.agent_states import AgentState
 
@@ -30,15 +30,15 @@ from .conditional_logic import ConditionalLogic
 # refactor drift in the speaker labels) can never hit a missing path_map entry
 # and crash LangGraph mid-run (#1088).
 DEBATE_PATH_MAP = {
-    "Bull Researcher": "Bull Researcher",
-    "Bear Researcher": "Bear Researcher",
-    "Research Manager": "Research Manager",
+    "Risk Researcher": "Risk Researcher",
+    "Safety Researcher": "Safety Researcher",
+    "Assessment Manager": "Assessment Manager",
 }
 RISK_ANALYSIS_PATH_MAP = {
     "Aggressive Analyst": "Aggressive Analyst",
     "Conservative Analyst": "Conservative Analyst",
     "Neutral Analyst": "Neutral Analyst",
-    "Portfolio Manager": "Portfolio Manager",
+    "Alert Manager": "Alert Manager",
 }
 
 
@@ -73,23 +73,23 @@ class GraphSetup:
         plan = build_analyst_execution_plan(selected_analysts)
 
         analyst_factories = {
-            "market": lambda: create_market_analyst(self.quick_thinking_llm),
-            "social": lambda: create_sentiment_analyst(self.quick_thinking_llm),
-            "news": lambda: create_news_analyst(self.quick_thinking_llm),
-            "fundamentals": lambda: create_fundamentals_analyst(self.quick_thinking_llm),
+            "market": lambda: create_hydrology_analyst(self.quick_thinking_llm),
+            "social": lambda: create_social_impact_analyst(self.quick_thinking_llm),
+            "news": lambda: create_meteorology_analyst(self.quick_thinking_llm),
+            "fundamentals": lambda: create_environment_analyst(self.quick_thinking_llm),
         }
 
         # Create researcher and manager nodes
-        bull_researcher_node = create_bull_researcher(self.quick_thinking_llm)
-        bear_researcher_node = create_bear_researcher(self.quick_thinking_llm)
-        research_manager_node = create_research_manager(self.deep_thinking_llm)
-        trader_node = create_trader(self.quick_thinking_llm)
+        risk_researcher_node = create_risk_researcher(self.quick_thinking_llm)
+        safety_researcher_node = create_safety_researcher(self.quick_thinking_llm)
+        assessment_manager_node = create_assessment_manager(self.deep_thinking_llm)
+        dispatcher_node = create_dispatcher(self.quick_thinking_llm)
 
         # Create risk analysis nodes
         aggressive_analyst = create_aggressive_debator(self.quick_thinking_llm)
         neutral_analyst = create_neutral_debator(self.quick_thinking_llm)
         conservative_analyst = create_conservative_debator(self.quick_thinking_llm)
-        portfolio_manager_node = create_portfolio_manager(self.deep_thinking_llm)
+        alert_manager_node = create_alert_manager(self.deep_thinking_llm)
 
         # Create workflow
         workflow = StateGraph(AgentState)
@@ -101,14 +101,14 @@ class GraphSetup:
             workflow.add_node(spec.tool_node, self.tool_nodes[spec.key])
 
         # Add other nodes
-        workflow.add_node("Bull Researcher", bull_researcher_node)
-        workflow.add_node("Bear Researcher", bear_researcher_node)
-        workflow.add_node("Research Manager", research_manager_node)
-        workflow.add_node("Trader", trader_node)
+        workflow.add_node("Risk Researcher", risk_researcher_node)
+        workflow.add_node("Safety Researcher", safety_researcher_node)
+        workflow.add_node("Assessment Manager", assessment_manager_node)
+        workflow.add_node("Dispatcher", dispatcher_node)
         workflow.add_node("Aggressive Analyst", aggressive_analyst)
         workflow.add_node("Neutral Analyst", neutral_analyst)
         workflow.add_node("Conservative Analyst", conservative_analyst)
-        workflow.add_node("Portfolio Manager", portfolio_manager_node)
+        workflow.add_node("Alert Manager", alert_manager_node)
 
         # Define edges
         # Start with the first analyst
@@ -132,17 +132,17 @@ class GraphSetup:
             if i < len(plan.specs) - 1:
                 workflow.add_edge(current_clear, plan.specs[i + 1].agent_node)
             else:
-                workflow.add_edge(current_clear, "Bull Researcher")
+                workflow.add_edge(current_clear, "Risk Researcher")
 
         # Both research-debate edges share the complete DEBATE_PATH_MAP (#1088).
-        for debate_node in ("Bull Researcher", "Bear Researcher"):
+        for debate_node in ("Risk Researcher", "Safety Researcher"):
             workflow.add_conditional_edges(
                 debate_node,
                 self.conditional_logic.should_continue_debate,
                 DEBATE_PATH_MAP,
             )
-        workflow.add_edge("Research Manager", "Trader")
-        workflow.add_edge("Trader", "Aggressive Analyst")
+        workflow.add_edge("Assessment Manager", "Dispatcher")
+        workflow.add_edge("Dispatcher", "Aggressive Analyst")
         # All three risk edges share the complete RISK_ANALYSIS_PATH_MAP (#1088).
         for risk_node in ("Aggressive Analyst", "Conservative Analyst", "Neutral Analyst"):
             workflow.add_conditional_edges(
@@ -151,6 +151,6 @@ class GraphSetup:
                 RISK_ANALYSIS_PATH_MAP,
             )
 
-        workflow.add_edge("Portfolio Manager", END)
+        workflow.add_edge("Alert Manager", END)
 
         return workflow

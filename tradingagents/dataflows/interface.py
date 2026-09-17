@@ -1,87 +1,76 @@
 import logging
 
-from .alpha_vantage import (
-    get_balance_sheet as get_alpha_vantage_balance_sheet,
-    get_cashflow as get_alpha_vantage_cashflow,
-    get_fundamentals as get_alpha_vantage_fundamentals,
-    get_global_news as get_alpha_vantage_global_news,
-    get_income_statement as get_alpha_vantage_income_statement,
-    get_indicator as get_alpha_vantage_indicator,
-    get_insider_transactions as get_alpha_vantage_insider_transactions,
-    get_news as get_alpha_vantage_news,
-    get_stock as get_alpha_vantage_stock,
-)
 from .config import get_config
 from .errors import (
     NoMarketDataError,
     VendorNotConfiguredError,
     VendorRateLimitError,
 )
-from .fred import get_macro_data as get_fred_macro_data
-from .polymarket import get_prediction_markets as get_polymarket_prediction_markets
-from .y_finance import (
-    get_balance_sheet as get_yfinance_balance_sheet,
-    get_cashflow as get_yfinance_cashflow,
-    get_fundamentals as get_yfinance_fundamentals,
-    get_income_statement as get_yfinance_income_statement,
-    get_insider_transactions as get_yfinance_insider_transactions,
-    get_stock_stats_indicators_window,
-    get_YFin_data_online,
+from .local_csv import (
+    get_environment_risk as get_local_environment_risk,
+    get_forward_forecast as get_local_forward_forecast,
+    get_hydrology_indicators as get_local_hydrology_indicators,
+    get_observations as get_local_observations,
+    get_rainfall_forecast as get_local_rainfall_forecast,
+    get_regional_indicators as get_local_regional_indicators,
+    get_river_flow as get_local_river_flow,
+    get_social_impact as get_local_social_impact,
+    get_soil_moisture as get_local_soil_moisture,
+    get_water_storage as get_local_water_storage,
+    get_weather_warning as get_local_weather_warning,
 )
-from .yfinance_news import get_global_news_yfinance, get_news_yfinance
+from .weather_api import get_online_rainfall_forecast
 
 logger = logging.getLogger(__name__)
 
-# Tools organized by category
+# 工具按类别组织
 TOOLS_CATEGORIES = {
     "core_stock_apis": {
-        "description": "OHLCV stock price data",
+        "description": "水文站点观测数据（水位/流量/雨量）",
         "tools": [
-            "get_stock_data"
+            "get_observations"
         ]
     },
     "technical_indicators": {
-        "description": "Technical analysis indicators",
+        "description": "水文趋势指标",
         "tools": [
-            "get_indicators"
+            "get_hydrology_indicators"
         ]
     },
     "fundamental_data": {
-        "description": "Company fundamentals",
+        "description": "环境风险与蓄水/河道/墒情",
         "tools": [
-            "get_fundamentals",
-            "get_balance_sheet",
-            "get_cashflow",
-            "get_income_statement"
+            "get_environment_risk",
+            "get_water_storage",
+            "get_river_flow",
+            "get_soil_moisture"
         ]
     },
     "news_data": {
-        "description": "News and insider data",
+        "description": "降雨预报、气象预警与社会影响",
         "tools": [
-            "get_news",
-            "get_global_news",
-            "get_insider_transactions",
+            "get_rainfall_forecast",
+            "get_weather_warning",
+            "get_social_impact",
         ]
     },
     "macro_data": {
-        "description": "Macroeconomic indicators (rates, inflation, labor, growth)",
+        "description": "区域环境指标",
         "tools": [
-            "get_macro_indicators",
+            "get_regional_indicators",
         ]
     },
     "prediction_markets": {
-        "description": "Market-implied probabilities for forward-looking events",
+        "description": "前瞻性事件的预报信息",
         "tools": [
-            "get_prediction_markets",
+            "get_forward_forecast",
         ]
     }
 }
 
 VENDOR_LIST = [
-    "yfinance",
-    "fred",
-    "polymarket",
-    "alpha_vantage",
+    "online_api",
+    "local_csv",
 ]
 
 # Optional enrichment categories. These add macro/event context to the news
@@ -91,55 +80,47 @@ VENDOR_LIST = [
 # categories (prices, fundamentals, news) still raise so a broken primary is loud.
 OPTIONAL_CATEGORIES = {"macro_data", "prediction_markets"}
 
-# Mapping of methods to their vendor-specific implementations
+# 方法到本地 CSV 厂商实现的映射（当前唯一数据源）
 VENDOR_METHODS = {
     # core_stock_apis
-    "get_stock_data": {
-        "alpha_vantage": get_alpha_vantage_stock,
-        "yfinance": get_YFin_data_online,
+    "get_observations": {
+        "local_csv": get_local_observations,
     },
     # technical_indicators
-    "get_indicators": {
-        "alpha_vantage": get_alpha_vantage_indicator,
-        "yfinance": get_stock_stats_indicators_window,
+    "get_hydrology_indicators": {
+        "local_csv": get_local_hydrology_indicators,
     },
     # fundamental_data
-    "get_fundamentals": {
-        "alpha_vantage": get_alpha_vantage_fundamentals,
-        "yfinance": get_yfinance_fundamentals,
+    "get_environment_risk": {
+        "local_csv": get_local_environment_risk,
     },
-    "get_balance_sheet": {
-        "alpha_vantage": get_alpha_vantage_balance_sheet,
-        "yfinance": get_yfinance_balance_sheet,
+    "get_water_storage": {
+        "local_csv": get_local_water_storage,
     },
-    "get_cashflow": {
-        "alpha_vantage": get_alpha_vantage_cashflow,
-        "yfinance": get_yfinance_cashflow,
+    "get_river_flow": {
+        "local_csv": get_local_river_flow,
     },
-    "get_income_statement": {
-        "alpha_vantage": get_alpha_vantage_income_statement,
-        "yfinance": get_yfinance_income_statement,
+    "get_soil_moisture": {
+        "local_csv": get_local_soil_moisture,
     },
     # news_data
-    "get_news": {
-        "alpha_vantage": get_alpha_vantage_news,
-        "yfinance": get_news_yfinance,
+    "get_rainfall_forecast": {
+        "local_csv": get_local_rainfall_forecast,
+        "online_api": get_online_rainfall_forecast,
     },
-    "get_global_news": {
-        "yfinance": get_global_news_yfinance,
-        "alpha_vantage": get_alpha_vantage_global_news,
+    "get_weather_warning": {
+        "local_csv": get_local_weather_warning,
     },
-    "get_insider_transactions": {
-        "alpha_vantage": get_alpha_vantage_insider_transactions,
-        "yfinance": get_yfinance_insider_transactions,
+    "get_social_impact": {
+        "local_csv": get_local_social_impact,
     },
     # macro_data
-    "get_macro_indicators": {
-        "fred": get_fred_macro_data,
+    "get_regional_indicators": {
+        "local_csv": get_local_regional_indicators,
     },
     # prediction_markets
-    "get_prediction_markets": {
-        "polymarket": get_polymarket_prediction_markets,
+    "get_forward_forecast": {
+        "local_csv": get_local_forward_forecast,
     },
 }
 
@@ -179,7 +160,7 @@ def route_to_vendor(method: str, *args, **kwargs):
     # The configured vendor list IS the chain: we do NOT silently fall back to
     # vendors the user did not choose (#988/#289) — that returned data from an
     # unexpected source and caused cross-vendor inconsistencies. For multi-vendor
-    # fallback, list them in order, e.g. data_vendors="yfinance,alpha_vantage".
+    # fallback, list them in order, e.g. data_vendors="local_csv".
     # The "default" sentinel (no explicit config) uses all available vendors.
     explicit = [v for v in primary_vendors if v and v != "default"]
     if explicit:

@@ -13,9 +13,9 @@ class AnalystExecutionPlanTests(unittest.TestCase):
         plan = build_analyst_execution_plan(["news", "market"])
 
         self.assertEqual([spec.key for spec in plan.specs], ["news", "market"])
-        self.assertEqual(plan.specs[0].agent_node, "News Analyst")
+        self.assertEqual(plan.specs[0].agent_node, "Meteorology Analyst")
         self.assertEqual(plan.specs[0].tool_node, "tools_news")
-        self.assertEqual(plan.specs[0].clear_node, "Msg Clear News")
+        self.assertEqual(plan.specs[0].clear_node, "Msg Clear Meteorology")
 
     def test_rejects_unknown_analyst_keys(self):
         with self.assertRaises(ValueError):
@@ -26,19 +26,17 @@ class AnalystExecutionPlanTests(unittest.TestCase):
 
         self.assertEqual(
             get_initial_analyst_node(plan),
-            "Fundamentals Analyst",
+            "Environment Analyst",
         )
 
-    def test_social_key_displays_as_sentiment_analyst(self):
-        # The wire key stays "social" for saved-config back-compat, but the
-        # user-visible agent_node label must match the v0.2.5 rename so the
-        # wall-time summary and any future consumer of agent_node says
-        # "Sentiment Analyst" rather than the legacy "Social Analyst".
+    def test_social_key_displays_as_social_impact_analyst(self):
+        # The wire key stays "social" for saved-config back-compat, while the
+        # user-visible node label is the hydrology role.
         plan = build_analyst_execution_plan(["social"])
         spec = plan.specs[0]
         self.assertEqual(spec.key, "social")
-        self.assertEqual(spec.agent_node, "Sentiment Analyst")
-        self.assertEqual(spec.report_key, "sentiment_report")
+        self.assertEqual(spec.agent_node, "Social Impact Analyst")
+        self.assertEqual(spec.report_key, "social_impact_report")
 
 
 class AnalystWallTimeTrackerTests(unittest.TestCase):
@@ -62,7 +60,7 @@ class AnalystWallTimeTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_summary(),
-            "Analyst wall time: News 4.00s | Market 2.25s",
+            "Analyst wall time: Meteorology 4.00s | Hydrology 2.25s",
         )
 
     def test_syncs_wall_time_from_sequential_chunks(self):
@@ -74,14 +72,14 @@ class AnalystWallTimeTrackerTests(unittest.TestCase):
 
         sync_analyst_tracker_from_chunk(
             tracker,
-            {"market_report": "done"},
+            {"hydrology_report": "done"},
             now=13.0,
         )
         self.assertEqual(tracker.get_wall_times(), {"market": 3.0})
 
         sync_analyst_tracker_from_chunk(
             tracker,
-            {"market_report": "done", "news_report": "done"},
+            {"hydrology_report": "done", "meteorology_report": "done"},
             now=18.0,
         )
         self.assertEqual(

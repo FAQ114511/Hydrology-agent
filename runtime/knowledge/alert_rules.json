@@ -1,0 +1,9 @@
+{
+  "_notice": "虚拟模拟规则，仅用于本地测试；正式部署前必须替换为主管部门发布的站点规则。",
+  "XIANGJIANG": {
+    "blue": {"water_level_m": 34.5, "rainfall_24h_mm": 50},
+    "yellow": {"water_level_m": 35.0, "rainfall_24h_mm": 80},
+    "orange": {"water_level_m": 36.0, "rainfall_24h_mm": 120},
+    "red": {"water_level_m": 37.5, "rainfall_24h_mm": 200}
+  }
+}

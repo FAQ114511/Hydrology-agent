@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -5,48 +6,46 @@ import questionary
 from dotenv import find_dotenv, set_key
 from rich.console import Console
 
-from cli.models import AnalystType, AssetType
+from cli.models import AnalystType
 from tradingagents.llm_clients.api_key_env import get_api_key_env
 from tradingagents.llm_clients.model_catalog import get_model_options
 
 console = Console()
 
-TICKER_INPUT_EXAMPLES = "SPY, 0700.HK, BTC-USD"
+STATIONS_PATH = Path(__file__).resolve().parents[1] / "runtime" / "knowledge" / "stations.json"
 
 ANALYST_ORDER = [
-    ("Market Analyst", AnalystType.MARKET),
-    ("Sentiment Analyst", AnalystType.SOCIAL),
-    ("News Analyst", AnalystType.NEWS),
-    ("Fundamentals Analyst", AnalystType.FUNDAMENTALS),
+    ("水文分析师", AnalystType.MARKET),
+    ("社会影响分析师", AnalystType.SOCIAL),
+    ("气象分析师", AnalystType.NEWS),
+    ("环境风险分析师", AnalystType.FUNDAMENTALS),
 ]
 
-CRYPTO_SUFFIXES = ("-USD", "-USDT", "-USDC", "-BTC", "-ETH")
+def load_station_ids() -> list[str]:
+    """Return the station identifiers documented in the hydrology knowledge base."""
+    stations = json.loads(STATIONS_PATH.read_text(encoding="utf-8"))
+    return sorted(key for key, value in stations.items() if not key.startswith("_") and isinstance(value, dict))
 
 
-def is_valid_ticker_input(value: str) -> bool:
-    """Whether a ticker entry is acceptable (charset + length).
-
-    Allows the characters Yahoo symbols use, including ``=`` for futures/forex
-    like ``GC=F`` and ``EURUSD=X`` (#980), and ``^`` for indices. Empty input is
-    allowed (it defaults to SPY downstream).
-    """
-    v = value.strip()
-    return not v or (all(ch.isalnum() or ch in "._-^=" for ch in v) and len(v) <= 32)
+def normalize_station(station: str) -> str:
+    return station.strip().upper()
 
 
-def get_ticker() -> str:
-    """Prompt the user to enter a ticker symbol, preserving exchange suffixes.
+def get_station(default: str = "XIANGJIANG") -> str:
+    """Prompt for a station and validate it against ``stations.json``."""
+    station_ids = load_station_ids()
+    default_station = normalize_station(default)
 
-    Uses questionary.text (not typer.prompt, which strips trailing dot-suffixes
-    like ``000404.SH`` on some shells) and validates the symbol charset so an
-    obvious typo is caught before the run starts.
-    """
-    ticker = questionary.text(
-        f"Enter ticker symbol (e.g. {TICKER_INPUT_EXAMPLES}):",
-        validate=lambda x: (
-            is_valid_ticker_input(x)
-            or "Please enter a valid ticker symbol, e.g. AAPL, 000404.SZ, 0700.HK, GC=F."
-        ),
+    def validate(value: str):
+        station = normalize_station(value)
+        if station in station_ids:
+            return True
+        return f"Unknown station. Available: {', '.join(station_ids)}"
+
+    station = questionary.text(
+        f"Enter hydrology station (default: {default_station}):",
+        default=default_station,
+        validate=validate,
         style=questionary.Style(
             [
                 ("text", "fg:green"),
@@ -55,48 +54,14 @@ def get_ticker() -> str:
         ),
     ).ask()
 
-    if ticker is None:
-        console.print("\n[red]No ticker symbol provided. Exiting...[/red]")
+    if station is None:
+        console.print("\n[red]No station provided. Exiting...[/red]")
         exit(1)
-
-    return normalize_ticker_symbol(ticker) if ticker.strip() else "SPY"
-
-
-def normalize_ticker_symbol(ticker: str) -> str:
-    """Resolve user input to its canonical Yahoo symbol (single source of truth).
-
-    Delegates to the data layer's ``normalize_symbol`` so the symbol the CLI
-    passes through the pipeline is exactly the one the data path will price
-    (e.g. ``BTCUSD`` -> ``BTC-USD``, ``XAUUSD`` -> ``GC=F``). Falls back to the
-    plain upper-case if the data layer is unavailable.
-    """
-    try:
-        from tradingagents.dataflows.symbol_utils import normalize_symbol
-
-        return normalize_symbol(ticker)
-    except Exception:
-        return ticker.strip().upper()
-
-
-def detect_asset_type(ticker: str) -> AssetType:
-    """Classify on the canonical symbol so e.g. BTCUSD and BTC-USDT both read as
-    crypto (#981/#982), matching what the data path will actually fetch."""
-    canonical = normalize_ticker_symbol(ticker)
-    if canonical.endswith(CRYPTO_SUFFIXES):
-        return AssetType.CRYPTO
-    return AssetType.STOCK
-
-
-def filter_analysts_for_asset_type(
-    analysts: list[AnalystType], asset_type: AssetType
-) -> list[AnalystType]:
-    if asset_type != AssetType.CRYPTO:
-        return analysts
-    return [
-        analyst
-        for analyst in analysts
-        if analyst != AnalystType.FUNDAMENTALS
-    ]
+    station = normalize_station(station)
+    if station not in station_ids:
+        console.print(f"\n[red]Unknown station. Available: {', '.join(station_ids)}[/red]")
+        exit(1)
+    return station
 
 
 def get_analysis_date() -> str:
@@ -132,18 +97,13 @@ def get_analysis_date() -> str:
     return date.strip()
 
 
-def select_analysts(asset_type: AssetType = AssetType.STOCK) -> list[AnalystType]:
+def select_analysts() -> list[AnalystType]:
     """Select analysts using an interactive checkbox."""
-    available_analysts = filter_analysts_for_asset_type(
-        [value for _, value in ANALYST_ORDER],
-        asset_type,
-    )
     choices = questionary.checkbox(
-        "Select Your [Analysts Team]:",
+        "Select Your [Hydrology Analysts Team]:",
         choices=[
             questionary.Choice(display, value=value)
             for display, value in ANALYST_ORDER
-            if value in available_analysts
         ],
         instruction="\n- Press Space to select/unselect analysts\n- Press 'a' to select/unselect all\n- Press Enter when done",
         validate=lambda x: len(x) > 0 or "You must select at least one analyst.",

@@ -1,100 +1,53 @@
-"""Sentiment analyst — multi-source sentiment analysis for a target ticker.
-
-Previously named ``social_media_analyst``. Renamed and redesigned because
-the old version had a prompt that demanded social-media analysis but the
-only tool available was Yahoo Finance news — which led LLMs to fabricate
-Reddit/X/StockTwits content under prompt pressure (verified live).
-
-The redesigned agent pre-fetches three complementary data sources before
-the LLM is invoked and injects them into the prompt as structured blocks:
-
-  1. News headlines     — Yahoo Finance (institutional framing)
-  2. StockTwits messages — retail-trader posts indexed by cashtag, with
-                           user-labeled Bullish/Bearish sentiment tags
-  3. Reddit posts        — r/wallstreetbets, r/stocks, r/investing
-
-The agent does not use tool-calling; the data is in the prompt from
-turn 0. Output uses the structured-output pattern (json_schema for
-OpenAI/xAI, response_schema for Gemini, tool-use for Anthropic), falling
-back to free-text generation for providers that lack native support, so
-the sentiment header (band + score + confidence) is deterministic across
-runs and providers instead of free-form per-model prose.
-
-See: https://github.com/TauricResearch/TradingAgents/issues/557
-See: https://github.com/TauricResearch/TradingAgents/issues/796
-"""
+"""社会影响分析师：根据本地可用资料评估防汛事件的社会影响。"""
 
 from datetime import datetime, timedelta
 
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from tradingagents.agents.schemas import SentimentReport, render_sentiment_report
+from tradingagents.agents.schemas import SocialImpactReport, render_social_impact_report
 from tradingagents.agents.utils.agent_utils import (
-    get_instrument_context_from_state,
+    get_area_context_from_state,
     get_language_instruction,
-    get_news,
+    get_rainfall_forecast,
+    get_social_impact,
 )
 from tradingagents.agents.utils.structured import (
     NO_EXTERNAL_TOOLS,
     bind_structured,
     invoke_structured_or_freetext,
 )
-from tradingagents.dataflows.reddit import fetch_reddit_posts
-from tradingagents.dataflows.stocktwits import fetch_stocktwits_messages
+def _seven_days_back(analysis_date: str) -> str:
+    return (datetime.strptime(analysis_date, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
 
 
-def _seven_days_back(trade_date: str) -> str:
-    return (datetime.strptime(trade_date, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
+def create_social_impact_analyst(llm):
+    """创建社会影响分析节点。"""
+    structured_llm = bind_structured(llm, SocialImpactReport, "社会影响分析师")
 
-
-def create_sentiment_analyst(llm):
-    """Create a sentiment analyst node for the trading graph.
-
-    Pre-fetches news + StockTwits + Reddit data, injects them into the
-    prompt as structured blocks, and produces a deterministic sentiment
-    report via structured output (with a free-text fallback for providers
-    that do not support it).
-    """
-    structured_llm = bind_structured(llm, SentimentReport, "Sentiment Analyst")
-
-    def sentiment_analyst_node(state):
-        ticker = state["company_of_interest"]
-        end_date = state["trade_date"]
+    def social_impact_analyst_node(state):
+        station = state["area_of_interest"]
+        end_date = state["analysis_date"]
         start_date = _seven_days_back(end_date)
-        instrument_context = get_instrument_context_from_state(state)
-
-        # Pre-fetch all three sources. Each fetcher degrades gracefully and
-        # returns a string (no exceptions surface from here), so the LLM
-        # always sees something — either real data or a clear placeholder.
-        news_block = get_news.func(ticker, start_date, end_date)
-        # Pass the analysis window so a historical run trims social posts to it
-        # instead of leaking today's chatter into a backtest (#1220).
-        stocktwits_block = fetch_stocktwits_messages(
-            ticker, limit=30, start_date=start_date, end_date=end_date
-        )
-        reddit_block = fetch_reddit_posts(ticker, start_date=start_date, end_date=end_date)
+        area_context = get_area_context_from_state(state)
+        impact_block = get_social_impact.func(station)
+        rainfall_block = get_rainfall_forecast.func(station, start_date, end_date)
 
         system_message = _build_system_message(
-            ticker=ticker,
+            station=station,
             start_date=start_date,
             end_date=end_date,
-            news_block=news_block,
-            stocktwits_block=stocktwits_block,
-            reddit_block=reddit_block,
+            impact_block=impact_block,
+            rainfall_block=rainfall_block,
         )
 
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    "You are a helpful AI assistant, collaborating with other assistants."
-                    " If you or any other assistant has the FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** or deliverable,"
-                    " prefix your response with FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** so the team knows to stop."
-                    # No tool-calling here: the data is pre-fetched into the
-                    # prompt, so tool-range wording would only invite a
-                    # hallucinated tool call (#1130).
-                    " Today's date is {current_date}; treat it as 'now' for all analysis. {instrument_context}"
+                    "你是与其他智能体协作的社会影响分析助手。"
+                    "若上下文已包含 FINAL ALERT DECISION: **红色预警/橙色预警/黄色预警/蓝色预警**，则停止继续研判。"
+                    "当前研判日期为 {current_date}，所有分析以此为准。{area_context}"
                     " " + NO_EXTERNAL_TOOLS +
                     "\n{system_message}",
                 ),
@@ -104,7 +57,7 @@ def create_sentiment_analyst(llm):
 
         prompt = prompt.partial(system_message=system_message)
         prompt = prompt.partial(current_date=end_date)
-        prompt = prompt.partial(instrument_context=instrument_context)
+        prompt = prompt.partial(area_context=area_context)
 
         # Format the template into a concrete message list so the structured
         # and free-text paths receive the same input. No bind_tools — the
@@ -115,100 +68,54 @@ def create_sentiment_analyst(llm):
             structured_llm,
             llm,
             formatted_messages,
-            render_sentiment_report,
-            "Sentiment Analyst",
+            render_social_impact_report,
+            "社会影响分析师",
         )
 
         return {
             "messages": [AIMessage(content=report_text)],
-            "sentiment_report": report_text,
+            "social_impact_report": report_text,
         }
 
-    return sentiment_analyst_node
+    return social_impact_analyst_node
 
 
 def _build_system_message(
     *,
-    ticker: str,
+    station: str,
     start_date: str,
     end_date: str,
-    news_block: str,
-    stocktwits_block: str,
-    reddit_block: str,
+    impact_block: str,
+    rainfall_block: str,
 ) -> str:
-    """Assemble the sentiment-analyst system message with structured data blocks."""
-    return f"""You are a financial market sentiment analyst. Your task is to produce a comprehensive sentiment report for {ticker} covering the period from {start_date} to {end_date}, drawing on three complementary data sources that have already been collected for you.
+    """组装包含预取数据块的社会影响分析提示词。"""
+    return f"""你是一名社会影响分析师。请评估 {station} 站相关区域在 {start_date} 至 {end_date} 的防汛社会影响。
 
-## Data sources (pre-fetched, in this prompt)
+## 已预取数据
 
-### News headlines — Yahoo Finance, past 7 days
-Institutional framing. Fact-driven, slower-moving signal.
+### 社会影响资料
+<start_of_social_impact>
+{impact_block}
+<end_of_social_impact>
 
-<start_of_news>
-{news_block}
-<end_of_news>
+### 同期降雨资料
+<start_of_rainfall>
+{rainfall_block}
+<end_of_rainfall>
 
-### StockTwits messages — retail-trader social platform indexed by cashtag
-Fast-moving signal. Each message carries a user-labeled sentiment tag (Bullish / Bearish / no-label) plus the message body.
+## 分析要求
 
-<start_of_stocktwits>
-{stocktwits_block}
-<end_of_stocktwits>
+1. 关注受影响人口、低洼区与沿河居民、道路交通、农业生产、学校医院等重要设施、转移安置需求和公众关注度。
+2. 明确区分观测事实、预报信息与推断，不得把缺失信息写成已发生事实。
+3. 任一数据块含 NO_DATA_AVAILABLE 时，必须在报告中说明缺口，并相应降低 confidence。
+4. 数据不足时采用轻微影响或一般影响的审慎判断，除非已有明确证据支持严重影响。
+5. narrative 必须包含逐项证据、主要不确定性、潜在影响链条及 Markdown 汇总表。
 
-### Reddit posts — r/wallstreetbets, r/stocks, r/investing (past 7 days)
-Community discussion. Engagement signal via upvote score and comment count. Subreddit character matters (r/wallstreetbets is often contrarian/exuberant; r/stocks more measured; r/investing longer-term).
+## 输出字段
 
-<start_of_reddit>
-{reddit_block}
-<end_of_reddit>
-
-## How to analyze this data (best practices)
-
-1. **Read the StockTwits Bullish/Bearish ratio as a leading retail-sentiment signal.** A 70/30 bullish/bearish split is moderately bullish; ≥90/10 may indicate over-extension and contrarian risk; 50/50 is uncertainty. Sample size matters — base rates on the actual message count, not percentages alone.
-
-2. **Look for cross-source divergences.** If news framing is bearish but StockTwits is overwhelmingly bullish, that mismatch is itself a signal — it can mean retail is leaning into a thesis the news flow hasn't caught up to (or vice versa, that retail is chasing while institutions are cautious).
-
-3. **Weight Reddit posts by engagement.** A 400-upvote / 200-comment thread reflects community attention; a 3-upvote post is noise. Read the body excerpts for context — the title alone often misleads.
-
-4. **Distinguish opinion from event.** A news headline ("Nvidia announces $500M Corning deal") is an event; a StockTwits post ("buying NVDA, this is going to moon") is opinion. Both are inputs but should be weighted differently in your conclusions.
-
-5. **Identify recurring narrative themes.** What topic keeps coming up across sources? That's the dominant narrative driving current sentiment.
-
-6. **Be honest about data limits.** If StockTwits returned only a handful of messages, or one or more sources returned an "<unavailable>" placeholder, the sentiment read is less robust — flag this explicitly in the `confidence` field and the narrative. If the sources are silent on a given subreddit, say so.
-
-7. **Identify catalysts and risks** that emerge across sources — news of upcoming earnings, product launches, competitive threats, macro headlines, etc.
-
-8. **Past sentiment is not predictive.** Frame your conclusions as signal for the trader to weigh alongside fundamentals and technicals, not as a price call.
-
-## Output fields
-
-Fill the following fields:
-
-- **overall_band**: Exactly one of Bullish / Mildly Bullish / Neutral / Mixed / Mildly Bearish / Bearish. Use Mixed when sources point in clearly different directions; Neutral only when all sources are genuinely silent.
-- **overall_score**: A number from 0 (maximally bearish) to 10 (maximally bullish); 5 is neutral. Keep it consistent with overall_band.
-- **confidence**: low / medium / high, based on data quality and sample size.
-- **narrative**: Full source-by-source breakdown, divergences, dominant narrative themes, catalysts and risks, and a markdown summary table of key sentiment signals (direction, source, supporting evidence).
+- overall_band：严重影响 / 一般影响 / 轻微影响，恰好选择一个。
+- overall_score：0–10 的影响强度，与 overall_band 一致。
+- confidence：low / medium / high，依据资料质量与完整性。
+- narrative：完整社会影响报告及 Markdown 汇总表。
 
 {get_language_instruction()}"""
-
-
-# ---------------------------------------------------------------------------
-# Backwards-compatibility shim
-# ---------------------------------------------------------------------------
-def create_social_media_analyst(llm):
-    """Deprecated alias for :func:`create_sentiment_analyst`.
-
-    Kept so existing code that imports ``create_social_media_analyst``
-    continues to work.
-
-    .. deprecated::
-        Import :func:`create_sentiment_analyst` directly instead.
-    """
-    import warnings
-    warnings.warn(
-        "create_social_media_analyst is deprecated and will be removed in a "
-        "future version. Use create_sentiment_analyst instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return create_sentiment_analyst(llm)

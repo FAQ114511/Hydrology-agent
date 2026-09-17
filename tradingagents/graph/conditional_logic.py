@@ -12,62 +12,61 @@ class ConditionalLogic:
         self.max_risk_discuss_rounds = max_risk_discuss_rounds
 
     def should_continue_market(self, state: AgentState):
-        """Determine if market analysis should continue."""
+        """Determine if the hydrology analyst's tool round should continue."""
         messages = state["messages"]
         last_message = messages[-1]
         if last_message.tool_calls:
             return "tools_market"
-        return "Msg Clear Market"
+        return "Msg Clear Hydrology"
 
     def should_continue_social(self, state: AgentState):
-        """Determine if sentiment-analyst tool round should continue.
+        """Determine if the social-impact analyst's tool round should continue.
 
-        Method name keeps the legacy ``social`` suffix to match the
-        ``AnalystType.SOCIAL = "social"`` wire value (saved-config
-        back-compat); the returned ``clear_node`` label uses the v0.2.5
-        rename so it matches the node registered by the execution plan.
+        Method name keeps the legacy ``social`` wire value to match the
+        ``selected_analysts`` keys and ``tool_nodes`` map; the returned
+        ``clear_node`` label matches the node registered by the execution plan.
         """
         messages = state["messages"]
         last_message = messages[-1]
         if last_message.tool_calls:
             return "tools_social"
-        return "Msg Clear Sentiment"
+        return "Msg Clear Social Impact"
 
     def should_continue_news(self, state: AgentState):
-        """Determine if news analysis should continue."""
+        """Determine if the meteorology analyst's tool round should continue."""
         messages = state["messages"]
         last_message = messages[-1]
         if last_message.tool_calls:
             return "tools_news"
-        return "Msg Clear News"
+        return "Msg Clear Meteorology"
 
     def should_continue_fundamentals(self, state: AgentState):
-        """Determine if fundamentals analysis should continue."""
+        """Determine if the environment analyst's tool round should continue."""
         messages = state["messages"]
         last_message = messages[-1]
         if last_message.tool_calls:
             return "tools_fundamentals"
-        return "Msg Clear Fundamentals"
+        return "Msg Clear Environment"
 
     def should_continue_debate(self, state: AgentState) -> str:
-        """Determine if debate should continue."""
+        """Determine if the risk/safety debate should continue."""
 
         if (
-            state["investment_debate_state"]["count"] >= 2 * self.max_debate_rounds
+            state["risk_debate_state"]["count"] >= 2 * self.max_debate_rounds
         ):  # 3 rounds of back-and-forth between 2 agents
-            return "Research Manager"
-        if state["investment_debate_state"]["current_response"].startswith("Bull"):
-            return "Bear Researcher"
-        return "Bull Researcher"
+            return "Assessment Manager"
+        if state["risk_debate_state"]["current_response"].startswith("Risk Analyst"):
+            return "Safety Researcher"
+        return "Risk Researcher"
 
     def should_continue_risk_analysis(self, state: AgentState) -> str:
-        """Determine if risk analysis should continue."""
+        """Determine if the response debate should continue."""
         if (
-            state["risk_debate_state"]["count"] >= 3 * self.max_risk_discuss_rounds
+            state["response_debate_state"]["count"] >= 3 * self.max_risk_discuss_rounds
         ):  # 3 rounds of back-and-forth between 3 agents
-            return "Portfolio Manager"
-        if state["risk_debate_state"]["latest_speaker"].startswith("Aggressive"):
+            return "Alert Manager"
+        if state["response_debate_state"]["latest_speaker"].startswith("Aggressive"):
             return "Conservative Analyst"
-        if state["risk_debate_state"]["latest_speaker"].startswith("Conservative"):
+        if state["response_debate_state"]["latest_speaker"].startswith("Conservative"):
             return "Neutral Analyst"
         return "Aggressive Analyst"

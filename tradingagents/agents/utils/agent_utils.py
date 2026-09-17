@@ -1,62 +1,68 @@
 import functools
+import json
 import logging
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
-import yfinance as yf
 from langchain_core.messages import HumanMessage, RemoveMessage
 
-# Import tools from separate utility files
-from tradingagents.agents.utils.core_stock_tools import get_stock_data
+# 从各独立工具文件导入
+from tradingagents.agents.utils.core_stock_tools import get_observations
 from tradingagents.agents.utils.fundamental_data_tools import (
-    get_balance_sheet,
-    get_cashflow,
-    get_fundamentals,
-    get_income_statement,
+    get_environment_risk,
+    get_river_flow,
+    get_soil_moisture,
+    get_water_storage,
 )
-from tradingagents.agents.utils.macro_data_tools import get_macro_indicators
-from tradingagents.agents.utils.market_data_validation_tools import get_verified_market_snapshot
+from tradingagents.agents.utils.macro_data_tools import get_regional_indicators
+from tradingagents.agents.utils.market_data_validation_tools import get_verified_observation_snapshot
 from tradingagents.agents.utils.news_data_tools import (
-    get_global_news,
-    get_insider_transactions,
-    get_news,
+    get_rainfall_forecast,
+    get_social_impact,
+    get_weather_warning,
 )
-from tradingagents.agents.utils.prediction_markets_tools import get_prediction_markets
-from tradingagents.agents.utils.technical_indicators_tools import get_indicators
+from tradingagents.agents.utils.prediction_markets_tools import get_forward_forecast
+from tradingagents.agents.utils.rag_tools import search_flood_knowledge
+from tradingagents.agents.utils.technical_indicators_tools import get_hydrology_indicators
 
-# Public surface: the data tools are imported here so agents and the graph
-# import them from one place, plus the instrument/language helpers defined below.
+# 对外接口：数据工具在此统一导入，供智能体与图从同一处引用，
+# 外加下方定义的站点/语言辅助函数。
 __all__ = [
-    "get_stock_data",
-    "get_indicators",
-    "get_fundamentals",
-    "get_balance_sheet",
-    "get_cashflow",
-    "get_income_statement",
-    "get_news",
-    "get_global_news",
-    "get_insider_transactions",
-    "get_macro_indicators",
-    "get_prediction_markets",
-    "get_verified_market_snapshot",
-    "build_instrument_context",
-    "resolve_instrument_identity",
-    "get_instrument_context_from_state",
+    "get_observations",
+    "get_hydrology_indicators",
+    "get_environment_risk",
+    "get_water_storage",
+    "get_river_flow",
+    "get_soil_moisture",
+    "get_rainfall_forecast",
+    "get_weather_warning",
+    "get_social_impact",
+    "get_regional_indicators",
+    "get_forward_forecast",
+    "get_verified_observation_snapshot",
+    "search_flood_knowledge",
+    "build_area_context",
+    "resolve_station_identity",
+    "get_area_context_from_state",
     "get_language_instruction",
     "create_msg_delete",
 ]
 
 logger = logging.getLogger(__name__)
 
+_STATIONS_PATH = (
+    Path(__file__).resolve().parents[3] / "runtime" / "knowledge" / "stations.json"
+)
+
 
 def get_language_instruction() -> str:
-    """Return a prompt instruction for the configured output language.
+    """返回配置输出语言的提示词指令。
 
-    Returns empty string when English (default), so no extra tokens are used.
-    Applied to every agent whose output reaches the saved report —
-    analysts, researchers, debaters, research manager, trader, and
-    portfolio manager — so a non-English run produces a fully localized
-    report rather than a mix of languages.
+    英语（默认）时返回空字符串，以免消耗多余 token。
+    应用于所有输出会进入保存报告的智能体 —— 分析师、研判员、辩论方、
+    研判经理、处置员、预警决策员 —— 使非英语运行产生完全本地化的报告，
+    而不是多语言混杂。
     """
     from tradingagents.dataflows.config import get_config
     lang = get_config().get("output_language", "English")
@@ -66,166 +72,116 @@ def get_language_instruction() -> str:
 
 
 def opponent_argument_or_opening(text: str, opponent: str) -> str:
-    """Opponent's latest argument, or an explicit opening marker when empty.
+    """对方最新论据，为空时返回一个明确的开场标记。
 
-    The first speaker in each debate round receives an empty opponent response;
-    interpolating it into a "refute the opponent" prompt makes the model
-    fabricate the other side's position. Returning a clear "has not spoken yet"
-    marker instead lets it open with its own case (#1176).
+    每轮辩论的第一位发言者拿到的对方回复是空的；把它插进「反驳对方」的提示词
+    会让模型臆造另一方的立场。返回明确的「尚未发言」标记，让它可以先陈述
+    自己的论据（#1176）。
     """
     text = (text or "").strip()
     if text:
         return text
-    return f"(The {opponent} has not spoken yet — open the debate with your own case.)"
-
-
-def _clean_identity_value(value: Any) -> str | None:
-    """Return a trimmed string, or None for empty / placeholder-ish values."""
-    if not isinstance(value, str):
-        return None
-    cleaned = value.strip()
-    if not cleaned or cleaned.lower() in {"none", "n/a", "nan", "null"}:
-        return None
-    return cleaned
+    return f"(（{opponent} 尚未发言 —— 请先陈述你自己的论据开启辩论。）)"
 
 
 @functools.lru_cache(maxsize=256)
-def resolve_instrument_identity(ticker: str) -> dict:
-    """Resolve deterministic identity metadata (company name, sector, …) for a ticker.
+def resolve_station_identity(station: str) -> dict:
+    """解析站点的确定性身份元数据（站点名、所在河流、流域等）。
 
-    This exists to stop the pipeline from hallucinating a *different* company
-    when a chart pattern suggests a different industry than the real one
-    (#814): without a ground-truth name, the market analyst would pattern-match
-    the price action to a narrative and invent an identity that then cascaded
-    through every downstream agent.
+    它的存在是为了阻止流水线在图表形态提示出「另一个区域」时臆造出不同的
+    站点：没有真值名称，分析师会把水位走势套进一个叙事并编造身份，进而
+    级联影响所有下游智能体。
 
-    Best-effort by design: if yfinance is unavailable, rate-limited, or doesn't
-    recognise the ticker, we return ``{}`` and the caller falls back to
-    ticker-only context rather than failing before analysis starts. Cached so
-    the lookup happens at most once per ticker per process.
-
-    The symbol is normalized first (e.g. ``XAUUSD`` -> ``GC=F``) so identity
-    resolves for the same instrument the price path actually fetches (#983).
+    站点身份只来自 ``runtime/knowledge/stations.json``，不发起网络请求。
     """
-    from tradingagents.dataflows.symbol_utils import normalize_symbol
-
-    try:
-        info = yf.Ticker(normalize_symbol(ticker)).info or {}
-    except Exception as exc:  # noqa: BLE001 — fail open, never block the run
-        logger.debug("Could not resolve instrument identity for %s: %s", ticker, exc)
-        return {}
-
-    identity: dict[str, str] = {}
-    company_name = _clean_identity_value(info.get("longName")) or _clean_identity_value(
-        info.get("shortName")
-    )
-    if company_name:
-        identity["company_name"] = company_name
-    for source_key, target_key in (
-        ("sector", "sector"),
-        ("industry", "industry"),
-        ("exchange", "exchange"),
-        ("quoteType", "quote_type"),
-    ):
-        value = _clean_identity_value(info.get(source_key))
-        if value:
-            identity[target_key] = value
-    return identity
+    data = json.loads(_STATIONS_PATH.read_text(encoding="utf-8"))
+    return data.get(str(station).upper(), {})
 
 
-def build_instrument_context(
-    ticker: str,
-    asset_type: str = "stock",
+def build_area_context(
+    station: str,
+    asset_type: str = "flood",
     identity: Mapping[str, str] | None = None,
 ) -> str:
-    """Describe the exact instrument so agents preserve identity and ticker.
+    """描述确切的监测站点/区域，使智能体保持站点身份与编号一致。
 
-    When ``identity`` is provided (resolved deterministically via
-    :func:`resolve_instrument_identity`), the company name and business
-    classification are injected so agents anchor to the real company rather
-    than pattern-matching the price chart to a wrong one (#814).
+    当 ``identity`` 提供（通过 :func:`resolve_station_identity` 确定性解析）时，
+    站点名称等信息被注入，使智能体锚定真实站点而不是把水位走势套到错误区域上。
     """
-    is_crypto = asset_type == "crypto"
-    instrument_label = "asset" if is_crypto else "instrument"
     context = (
-        f"The {instrument_label} to analyze is `{ticker}`. "
-        "Use this exact ticker in every tool call, report, and recommendation, "
-        "preserving any exchange suffix (e.g. `.TO`, `.L`, `.HK`, `.T`, `-USD`)."
+        f"需要研判的区域/站点是 `{station}`。"
+        "在每一次工具调用、报告与建议中都使用这一确切编号。"
     )
 
     details = []
     if identity:
-        name = identity.get("company_name") or identity.get("name")
+        name = identity.get("station_name") or identity.get("name")
         if name:
-            details.append(f"{'Name' if is_crypto else 'Company'}: {name}")
+            details.append(f"站点名称：{name}")
+        if identity.get("river"):
+            details.append(f"所在河流：{identity['river']}")
+        if identity.get("basin"):
+            details.append(f"所属流域：{identity['basin']}")
+        if identity.get("province") or identity.get("city"):
+            location = "，".join(x for x in (identity.get("province"), identity.get("city")) if x)
+            details.append(f"行政区：{location}")
+        if identity.get("warning_level_m") is not None:
+            details.append(f"模拟警戒水位：{identity['warning_level_m']} m")
         sector, industry = identity.get("sector"), identity.get("industry")
         if sector and industry:
-            details.append(f"Business classification: {sector} / {industry}")
+            details.append(f"所属分类：{sector} / {industry}")
         elif sector:
-            details.append(f"Sector: {sector}")
+            details.append(f"所属领域：{sector}")
         elif industry:
-            details.append(f"Industry: {industry}")
+            details.append(f"所属领域：{industry}")
         if identity.get("exchange"):
-            details.append(f"Exchange: {identity['exchange']}")
+            details.append(f"站点标识：{identity['exchange']}")
 
     if details:
         context += (
-            f" Resolved identity: {'; '.join(details)}. "
-            "Do not substitute a different company or ticker unless a tool "
-            "result explicitly disproves this resolved identity."
-        )
-
-    if is_crypto:
-        context += (
-            " Treat it as a crypto asset rather than a company, and do not "
-            "assume company fundamentals are available."
+            f" 已解析身份：{'；'.join(details)}。"
+            "除非某个工具结果明确推翻这一解析身份，否则不要替换成其他站点。"
         )
     return context
 
 
-def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
-    """Return the instrument context for the current run.
+def get_area_context_from_state(state: Mapping[str, Any]) -> str:
+    """返回当前运行的站点上下文。
 
-    Prefers the identity-resolved context computed once at run start and
-    stored on the state (see ``TradingAgentsGraph.resolve_instrument_context``).
-    Falls back to a ticker-only context — with no network lookup — when the
-    state was constructed without it (bare programmatic states, tests), so a
-    consumer is never forced to make a yfinance call mid-graph.
+    优先使用运行开始时一次性解析并存入状态的上下文
+    （见 ``TradingAgentsGraph.resolve_area_context``）。
+    当状态未携带该上下文时（裸状态、测试），退回到仅用站点编号的上下文
+    —— 不发起网络查询，从而避免在图执行中途被迫调用外部数据源。
     """
-    context = state.get("instrument_context")
+    context = state.get("area_context")
     if isinstance(context, str) and context.strip():
         return context
-    return build_instrument_context(
-        str(state["company_of_interest"]),
-        state.get("asset_type", "stock"),
+    return build_area_context(
+        str(state["area_of_interest"]),
+        state.get("asset_type", "flood"),
     )
 
 
 def create_msg_delete():
     def delete_messages(state):
-        """Clear messages and add a context-anchored placeholder.
+        """清空消息并添加一个锚定上下文的占位消息。
 
-        The placeholder must not be a bare ``"Continue"``: some
-        OpenAI-compatible providers interpret that literally as the user task
-        and produce output about the word "continue" instead of analysing the
-        instrument (#888). Anchoring it to the resolved instrument context and
-        date keeps the next analyst on-task even if the provider treats the
-        placeholder as a standalone request.
+        占位消息不能是裸的 ``"Continue"``：有些 OpenAI 兼容供应商会把它
+        当作用户任务字面理解，从而输出关于 "continue" 一词的内容而不是分析
+        站点（#888）。把它锚定到已解析的站点上下文与日期，能让下一个分析师
+        即使供应商把占位消息当作独立请求，也保持聚焦任务。
         """
         messages = state["messages"]
         removal_operations = [RemoveMessage(id=m.id) for m in messages]
 
-        instrument_context = get_instrument_context_from_state(state)
-        trade_date = state.get("trade_date", "the requested date")
+        area_context = get_area_context_from_state(state)
+        analysis_date = state.get("analysis_date", "请求的日期")
         placeholder = HumanMessage(
             content=(
-                f"Proceed with your assigned analysis for this workflow. "
-                f"{instrument_context} The analysis date is {trade_date}."
+                f"继续完成你被分配的分析任务。"
+                f"{area_context} 研判日期为 {analysis_date}。"
             )
         )
         return {"messages": removal_operations + [placeholder]}
 
     return delete_messages
-
-
-

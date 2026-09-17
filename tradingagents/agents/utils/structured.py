@@ -1,7 +1,7 @@
 """Shared helpers for invoking an agent with structured output and a graceful fallback.
 
-The Portfolio Manager, Trader, and Research Manager all follow the same
-canonical pattern:
+The Alert Manager, Dispatcher, Assessment Manager, and Social Impact Analyst
+follow the same canonical pattern:
 
 1. At agent creation, wrap the LLM with ``with_structured_output(Schema)``
    so the model returns a typed Pydantic instance. If the provider does
@@ -13,7 +13,7 @@ canonical pattern:
    back to a plain ``llm.invoke`` so the pipeline never blocks.
 
 Centralising the pattern here keeps the agent factories small and ensures
-all three agents log the same warnings when fallback fires.
+all four agents log the same warnings when fallback fires.
 """
 
 from __future__ import annotations

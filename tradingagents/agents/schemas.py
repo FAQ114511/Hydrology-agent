@@ -1,19 +1,16 @@
-"""Pydantic schemas used by agents that produce structured output.
+"""智能体结构化输出所使用的 Pydantic schema（防汛水文监测情景）。
 
-The framework's primary artifact is still prose: each agent's natural-language
-reasoning is what users read in the saved markdown reports and what the
-downstream agents read as context.  Structured output is layered onto the
-three decision-making agents (Research Manager, Trader, Portfolio Manager)
-so that:
+框架的主要产出物仍然是自然语言散文：每个智能体的推理文字会被写入本地
+markdown 报告，并作为下游智能体的上下文继续读取。结构化输出只叠加在三个
+决策类智能体（研判经理、处置员、预警决策员）以及社会影响分析师之上，目的是：
 
-- Their outputs follow consistent section headers across runs and providers
-- Each provider's native structured-output mode is used (json_schema for
-  OpenAI/xAI, response_schema for Gemini, tool-use for Anthropic)
-- Schema field descriptions become the model's output instructions, freeing
-  the prompt body to focus on context and the rating-scale guidance
-- A render helper turns the parsed Pydantic instance back into the same
-  markdown shape the rest of the system already consumes, so display,
-  memory log, and saved reports keep working unchanged
+- 让它们的输出在不同模型供应商之间保持一致的章节结构
+- 复用各供应商原生的结构化输出能力（OpenAI/xAI 用 json_schema，
+  Gemini 用 response_schema，Anthropic 用 tool-use）
+- 把 schema 的字段描述直接当作模型的输出指令，提示词正文只需交代上下文与
+  预警分级标准
+- 各 render 函数把解析后的 Pydantic 实例还原成同样的 markdown 结构，
+  因此展示层、记忆日志、报告文件都无需感知结构化输出的存在
 """
 
 from __future__ import annotations
@@ -21,348 +18,264 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
-
-# LLMs sometimes write a placeholder string ("None", "N/A", ...) into an optional
-# numeric field instead of omitting it. Coerce those to None so the structured
-# call validates instead of erroring (#1058). Pydantic still parses real numeric
-# strings ("189.5") to float.
-_NULLISH_FLOAT = {"", "none", "n/a", "na", "null", "nil", "-", "tbd", "unknown"}
-
-
-def _coerce_optional_float(value):
-    """Normalise an LLM-written optional numeric field before validation.
-
-    Three shapes show up in practice: a placeholder string ("None", "N/A") in
-    place of an omitted value (#1058); a percentage where a price was asked for
-    ("15%", #1288); and a human-formatted price ("$1,234.50"). A percentage
-    cannot be salvaged into an absolute level -- reading "15%" as 15 would put a
-    stop at $15 on a $600 stock -- so it is dropped like a placeholder, leaving
-    one bad field to null out instead of failing the whole proposal. A formatted
-    price is reduced to its number. Anything else passes through to pydantic.
-    """
-    if not isinstance(value, str):
-        return value
-    text = value.strip()
-    if text.lower() in _NULLISH_FLOAT or text.endswith("%"):
-        return None
-    cleaned = text.replace(",", "").lstrip("$€£¥").strip()
-    return cleaned or None
-
+from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
-# Shared rating types
+# 共用的分级枚举
 # ---------------------------------------------------------------------------
 
 
-class PortfolioRating(str, Enum):
-    """5-tier rating used by the Research Manager and Portfolio Manager."""
+class AlertLevel(str, Enum):
+    """四级防汛预警等级，由研判经理与预警决策员产出。"""
 
-    BUY = "Buy"
-    OVERWEIGHT = "Overweight"
-    HOLD = "Hold"
-    UNDERWEIGHT = "Underweight"
-    SELL = "Sell"
+    RED = "红色预警"
+    ORANGE = "橙色预警"
+    YELLOW = "黄色预警"
+    BLUE = "蓝色预警"
 
 
-class TraderAction(str, Enum):
-    """3-tier transaction direction used by the Trader.
+class DispatchAction(str, Enum):
+    """三档处置动作，由处置员产出。
 
-    The Trader's job is to translate the Research Manager's investment plan
-    into a concrete transaction proposal: should the desk execute a Buy, a
-    Sell, or sit on Hold this round.  Position sizing and the nuanced
-    Overweight / Underweight calls happen later at the Portfolio Manager.
+    处置员的职责是把研判经理的研判方案落成一条可执行的处置指令：
+    这一轮该启动应急响应、加强监测，还是维持常规监测。
+    具体的预警等级由后面的预警决策员在三级辩论之后敲定。
     """
 
-    BUY = "Buy"
-    HOLD = "Hold"
-    SELL = "Sell"
+    EMERGENCY_RESPONSE = "启动应急响应"
+    STRENGTHEN_MONITORING = "加强监测预警"
+    ROUTINE_MONITORING = "维持常规监测"
+
+
+class SocialImpactBand(str, Enum):
+    """社会影响程度档位，由社会影响分析师产出。"""
+
+    SEVERE = "严重影响"
+    MODERATE = "一般影响"
+    LOW = "轻微影响"
 
 
 # ---------------------------------------------------------------------------
-# Research Manager
+# 研判经理
 # ---------------------------------------------------------------------------
 
 
-class ResearchPlan(BaseModel):
-    """Structured investment plan produced by the Research Manager.
+class AssessmentPlan(BaseModel):
+    """研判经理产出的结构化研判方案。
 
-    Hand-off to the Trader: the recommendation pins the directional view,
-    the rationale captures which side of the bull/bear debate carried the
-    argument, and the strategic actions translate that into concrete
-    instructions the trader can execute against.
+    交接给处置员：recommendation 给出预警等级的倾向，rationale 记录辩论中
+    哪一方的论据更有说服力，strategic_actions 把它转成处置员可执行的
+    具体监测与处置动作。
     """
 
-    recommendation: PortfolioRating = Field(
+    recommendation: AlertLevel = Field(
         description=(
-            "The investment recommendation. Exactly one of Buy / Overweight / "
-            "Hold / Underweight / Sell. Choose Hold when the evidence is "
-            "balanced, materially conflicting, ambiguous, or insufficient to "
-            "justify changing exposure; otherwise commit to the side with the "
-            "clearly stronger arguments. Do not pick a direction merely to be "
-            "decisive."
+            "研判建议的预警等级。红/橙/黄/蓝中恰好选一个。"
+            "当证据平衡、彼此矛盾、含糊不清或不足以支持更高等级时选蓝色预警；"
+            "否则选论据明显更充分的那一侧。不要为了显得果断而硬抬等级。"
         ),
     )
     rationale: str = Field(
         description=(
-            "Conversational summary of the key points from both sides of the "
-            "debate, ending with which arguments led to the recommendation. "
-            "Speak naturally, as if to a teammate."
+            "以口语化的方式概括风险侧与安全侧辩论的要点，并说明是哪些论据"
+            "导向了最终的等级判断。像在跟同事讲话一样自然。"
         ),
     )
     strategic_actions: str = Field(
         description=(
-            "Concrete steps for the trader to implement the recommendation, "
-            "including position sizing guidance consistent with the rating."
+            "处置员落实该等级所需的具体动作，包括监测频次、巡查范围、"
+            "预警发布对象等与等级相匹配的建议。"
         ),
     )
 
 
-def render_research_plan(plan: ResearchPlan) -> str:
-    """Render a ResearchPlan to markdown for storage and the trader's prompt context."""
+def render_assessment_plan(plan: AssessmentPlan) -> str:
+    """把 AssessmentPlan 渲染成 markdown，供存储与处置员的提示词上下文使用。"""
     return "\n".join([
-        f"**Recommendation**: {plan.recommendation.value}",
+        f"**研判建议**: {plan.recommendation.value}",
         "",
-        f"**Rationale**: {plan.rationale}",
+        f"**判断依据**: {plan.rationale}",
         "",
-        f"**Strategic Actions**: {plan.strategic_actions}",
+        f"**处置措施**: {plan.strategic_actions}",
     ])
 
 
 # ---------------------------------------------------------------------------
-# Trader
+# 处置员
 # ---------------------------------------------------------------------------
 
 
-class TraderProposal(BaseModel):
-    """Structured transaction proposal produced by the Trader.
+class DispatchProposal(BaseModel):
+    """处置员产出的结构化处置方案。
 
-    The trader reads the Research Manager's investment plan and the analyst
-    reports, then turns them into a concrete transaction: what action to
-    take, the reasoning that justifies it, and the practical levels for
-    entry, stop-loss, and sizing.
+    处置员阅读研判经理的研判方案与各分析师报告，把三者转化为一份具体处置
+    安排：采取哪一档动作、支撑该动作的理由，以及建议的响应等级。
     """
 
-    action: TraderAction = Field(
-        description="The transaction direction. Exactly one of Buy / Hold / Sell.",
+    action: DispatchAction = Field(
+        description=(
+            "处置动作。启动应急响应 / 加强监测预警 / 维持常规监测，恰好选一个。"
+        ),
     )
     reasoning: str = Field(
         description=(
-            "The case for this action, anchored in the analysts' reports and "
-            "the research plan. Two to four sentences."
+            "给出该动作的理由，必须落在分析师报告与研判方案的具体证据上。"
+            "两到四句话。"
         ),
     )
-    entry_price: float | None = Field(
+    response_level: str | None = Field(
         default=None,
         description=(
-            "Optional entry price target as an absolute number in the instrument's "
-            "quote currency (e.g. 189.5), never a percentage or a range. Omit it "
-            "if you cannot state a specific level."
+            "可选的响应等级说明，例如 '区级 IV 级应急响应' 或 "
+            "'加密到 1 小时一报'。没有明确安排时留空。"
         ),
     )
-    stop_loss: float | None = Field(
-        default=None,
-        description=(
-            "Optional stop-loss as an absolute price in the instrument's quote "
-            "currency (e.g. 172.0), never a percentage. Convert a percentage "
-            "distance to the price level it implies, or omit it."
-        ),
-    )
-    position_sizing: str | None = Field(
-        default=None,
-        description="Optional sizing guidance, e.g. '5% of portfolio'.",
-    )
-
-    @field_validator("entry_price", "stop_loss", mode="before")
-    @classmethod
-    def _nullish_float_to_none(cls, v):
-        return _coerce_optional_float(v)
 
 
-def render_trader_proposal(proposal: TraderProposal) -> str:
-    """Render a TraderProposal to markdown.
+def render_dispatch_proposal(proposal: DispatchProposal) -> str:
+    """把 DispatchProposal 渲染成 markdown。
 
-    The trailing ``FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**`` line is
-    preserved for backward compatibility with the analyst stop-signal text
-    and any external code that greps for it.
+    末尾的 ``FINAL DISPATCH PLAN: **启动应急响应/加强监测预警/维持常规监测**``
+    是给提示词用的停止信号，也是外部代码检索处置结论的锚点。
     """
     parts = [
-        f"**Action**: {proposal.action.value}",
+        f"**处置动作**: {proposal.action.value}",
         "",
-        f"**Reasoning**: {proposal.reasoning}",
+        f"**理由**: {proposal.reasoning}",
     ]
-    if proposal.entry_price is not None:
-        parts.extend(["", f"**Entry Price**: {proposal.entry_price}"])
-    if proposal.stop_loss is not None:
-        parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
-    if proposal.position_sizing:
-        parts.extend(["", f"**Position Sizing**: {proposal.position_sizing}"])
+    if proposal.response_level:
+        parts.extend(["", f"**响应等级**: {proposal.response_level}"])
     parts.extend([
         "",
-        f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
+        f"FINAL DISPATCH PLAN: **{proposal.action.value}**",
     ])
     return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
-# Portfolio Manager
+# 预警决策员
 # ---------------------------------------------------------------------------
 
 
-class PortfolioDecision(BaseModel):
-    """Structured output produced by the Portfolio Manager.
+class AlertDecision(BaseModel):
+    """预警决策员产出的结构化输出。
 
-    The model fills every field as part of its primary LLM call; no separate
-    extraction pass is required. Field descriptions double as the model's
-    output instructions, so the prompt body only needs to convey context and
-    the rating-scale guidance.
+    模型在同一次 LLM 调用中填完全部字段，无需额外的抽取步骤。字段描述同时
+    充当模型输出指令，因此提示词正文只需提供上下文与分级标准。
     """
 
-    rating: PortfolioRating = Field(
+    rating: AlertLevel = Field(
         description=(
-            "The final position rating. Exactly one of Buy / Overweight / Hold / "
-            "Underweight / Sell, picked based on the analysts' debate. Choose "
-            "Hold when the case is balanced, materially conflicting, ambiguous, "
-            "or insufficient to justify changing exposure, rather than forcing a "
-            "direction to appear decisive."
+            "最终预警等级。红/橙/黄/蓝中恰好选一个，依据各分析师报告与三方"
+            "辩论作出。当证据平衡、彼此矛盾、含糊不清或不足以支撑更高等级时，"
+            "宁可保守也不要为了显得果断而抬高等级。"
         ),
     )
     executive_summary: str = Field(
         description=(
-            "A concise action plan covering entry strategy, position sizing, "
-            "key risk levels, and time horizon. Two to four sentences."
+            "简洁的行动安排，涵盖处置动作、影响区域、关键风险水位与时段。"
+            "两到四句话。"
         ),
     )
-    investment_thesis: str = Field(
+    assessment_thesis: str = Field(
         description=(
-            "Detailed reasoning anchored in specific evidence from the analysts' "
-            "debate. If prior lessons are referenced in the prompt context, "
-            "incorporate them; otherwise rely solely on the current analysis."
+            "详细理由，必须引用各分析师报告与辩论中提出的具体证据。"
+            "若提示词上下文中给出了历史经验教训，则一并参考；"
+            "否则只依据本次分析。"
         ),
     )
-    price_target: float | None = Field(
+    affected_area: str | None = Field(
         default=None,
-        description="Optional target price in the instrument's quote currency.",
+        description="可选的受影响区域描述，例如 '湘江下游沿岸低洼区'。",
     )
-    time_horizon: str | None = Field(
+    valid_period: str | None = Field(
         default=None,
-        description="Optional recommended holding period, e.g. '3-6 months'.",
+        description="可选的预警有效时段，例如 '2024-05-10 至 2024-05-13'。",
     )
 
-    @field_validator("price_target", mode="before")
-    @classmethod
-    def _nullish_float_to_none(cls, v):
-        return _coerce_optional_float(v)
 
+def render_alert_decision(decision: AlertDecision) -> str:
+    """把 AlertDecision 渲染回系统其余部分消费的 markdown 形态。
 
-def render_pm_decision(decision: PortfolioDecision) -> str:
-    """Render a PortfolioDecision back to the markdown shape the rest of the system expects.
-
-    Memory log, CLI display, and saved report files all read this markdown,
-    so the rendered output preserves the exact section headers (``**Rating**``,
-    ``**Executive Summary**``, ``**Investment Thesis**``) that downstream
-    parsers and the report writers already handle.
+    记忆日志、命令行展示、保存的报告文件都读取这段 markdown，
+    因此渲染时保留固定的章节标题（``**预警等级**``、``**行动摘要**``、
+    ``**研判结论**``）。
     """
     parts = [
-        f"**Rating**: {decision.rating.value}",
+        f"**预警等级**: {decision.rating.value}",
         "",
-        f"**Executive Summary**: {decision.executive_summary}",
+        f"**行动摘要**: {decision.executive_summary}",
         "",
-        f"**Investment Thesis**: {decision.investment_thesis}",
+        f"**研判结论**: {decision.assessment_thesis}",
     ]
-    if decision.price_target is not None:
-        parts.extend(["", f"**Price Target**: {decision.price_target}"])
-    if decision.time_horizon:
-        parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
+    if decision.affected_area:
+        parts.extend(["", f"**影响区域**: {decision.affected_area}"])
+    if decision.valid_period:
+        parts.extend(["", f"**预警时段**: {decision.valid_period}"])
     return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
-# Sentiment Analyst
+# 社会影响分析师
 # ---------------------------------------------------------------------------
 
 
-class SentimentBand(str, Enum):
-    """Discrete sentiment direction produced by the Sentiment Analyst.
+class SocialImpactReport(BaseModel):
+    """社会影响分析师产出的结构化报告。
 
-    Six tiers keep the signal granular enough to be actionable while remaining
-    small enough for every provider to map reliably from its JSON output.
+    取代此前的自由散文输出，让下游消费者（看板、审计日志、报告渲染器、
+    其他智能体）可以直接读取 overall_band 与 overall_score，而不必维护
+    会随模型版本漂移的正则兜底。narrative 保留逐项分析，
+    render_social_impact_report 在开头拼一段确定性表头，
+    使保存的报告依旧可读。
     """
 
-    BULLISH = "Bullish"
-    MILDLY_BULLISH = "Mildly Bullish"
-    NEUTRAL = "Neutral"
-    MIXED = "Mixed"
-    MILDLY_BEARISH = "Mildly Bearish"
-    BEARISH = "Bearish"
-
-
-class SentimentReport(BaseModel):
-    """Structured sentiment report produced by the Sentiment Analyst.
-
-    Replaces the previous free-form prose output so downstream consumers
-    (dashboards, audit logs, PDF renderers, other agents) can read
-    ``overall_band`` and ``overall_score`` without maintaining fragile regex
-    fallbacks that drift with every model release. ``narrative`` preserves the
-    rich source-by-source analysis; ``render_sentiment_report`` prepends a
-    deterministic header so the saved report stays human-readable.
-    """
-
-    overall_band: SentimentBand = Field(
+    overall_band: SocialImpactBand = Field(
         description=(
-            "Overall sentiment direction. Exactly one of: "
-            "Bullish / Mildly Bullish / Neutral / Mixed / Mildly Bearish / Bearish. "
-            "Use Mixed when sources point in clearly different directions. "
-            "Use Neutral only when all sources are genuinely silent or non-committal."
+            "总体社会影响程度。严重影响 / 一般影响 / 轻微影响，恰好选一个。"
+            "当各类信号指向不同方向时选一般影响。"
         ),
     )
     overall_score: float = Field(
         ge=0.0,
         le=10.0,
         description=(
-            "Numeric sentiment intensity on a 0–10 scale. "
-            "0 = maximally bearish, 5 = neutral, 10 = maximally bullish. "
-            "Guideline for consistency with overall_band: "
-            "Bullish ~6.5–10, Mildly Bullish ~5.5–6.4, Neutral/Mixed ~4.5–5.5, "
-            "Mildly Bearish ~3.5–4.4, Bearish ~0–3.4. "
-            "Only the 0–10 bounds are enforced."
+            "0–10 的影响强度数值。0 = 几乎无影响，5 = 中等影响，"
+            "10 = 影响极其严重。与 overall_band 保持一致的参考区间："
+            "严重影响约 6.5–10，一般影响约 3.5–6.4，轻微影响约 0–3.4。"
+            "只强制校验 0–10 的边界。"
         ),
     )
     confidence: Literal["low", "medium", "high"] = Field(
         description=(
-            "Confidence in the assessment based on data quality and sample size. "
-            "Use 'low' when one or more sources returned a placeholder or fewer "
-            "than 5 data points; 'medium' when data is present but sparse; "
-            "'high' when all three sources returned substantive data."
+            "基于数据质量与样本量的判断置信度。当有数据源返回占位内容或"
+            "数据点少于 5 个时选 'low'；数据存在但稀薄时选 'medium'；"
+            "各数据源都给出实质内容时选 'high'。"
         ),
     )
     narrative: str = Field(
         description=(
-            "Full sentiment report covering, in order: "
-            "(1) source-by-source breakdown with specific evidence (cite message "
-            "counts, ratios, notable posts); "
-            "(2) cross-source divergences and alignments; "
-            "(3) dominant narrative themes; "
-            "(4) catalysts and risks surfaced by the data; "
-            "(5) a markdown table summarising key sentiment signals, their "
-            "direction, source, and supporting evidence. "
-            "Keep it informative and substantive: develop each section thoroughly "
-            "with concrete evidence so every point adds new signal for the trader."
+            "完整的社会影响报告，依次包含："
+            "(1) 逐项列出具体证据（引用观测条数、比例、关键事件）；"
+            "(2) 各项信号之间的分歧与一致之处；"
+            "(3) 主要的影响主题（受影响人口、交通、农业、转移安置等）；"
+            "(4) 由数据揭示的诱因与风险；"
+            "(5) 一张 markdown 表格汇总关键信号、其指向、来源与支撑证据。"
+            "内容要扎实：每一节都用具体证据展开，为处置员新增有效信息。"
         ),
     )
 
 
-def render_sentiment_report(report: SentimentReport) -> str:
-    """Render a SentimentReport to the markdown shape the rest of the system expects.
+def render_social_impact_report(report: SocialImpactReport) -> str:
+    """把 SocialImpactReport 渲染成系统其余部分消费的 markdown。
 
-    The structured header (band + score + confidence) is prepended to the
-    narrative so the saved report is both human-readable and machine-parseable
-    without regex.
+    结构化表头（影响档位 + 分值 + 置信度）拼在 narrative 之前，
+    使保存的报告既便于人读也便于机器解析，无需正则。
     """
     return "\n".join([
-        f"**Overall Sentiment:** **{report.overall_band.value}** "
-        f"(Score: {report.overall_score:.1f}/10)",
-        f"**Confidence:** {report.confidence.capitalize()}",
+        f"**总体社会影响：** **{report.overall_band.value}** "
+        f"(强度: {report.overall_score:.1f}/10)",
+        f"**置信度:** {report.confidence}",
         "",
         report.narrative,
     ])

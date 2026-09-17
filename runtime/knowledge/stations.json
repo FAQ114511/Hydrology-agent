@@ -1,0 +1,17 @@
+{
+  "_notice": "虚拟模拟数据，仅用于本地测试，不代表真实水文站资料。",
+  "XIANGJIANG": {
+    "station_name": "湘江示范站",
+    "river": "湘江",
+    "basin": "湘江流域",
+    "province": "湖南省",
+    "city": "长沙市",
+    "latitude": 28.21,
+    "longitude": 112.98,
+    "warning_level_m": 36.0,
+    "guarantee_level_m": 37.5,
+    "warning_flow_m3s": 3400,
+    "guarantee_flow_m3s": 4200,
+    "historical_flood_note": "虚拟历史记录：高水位期间低洼区和沿岸道路存在积水风险。"
+  }
+}

@@ -1,0 +1,8 @@
+Date,SoilSaturationPct,ReservoirStoragePct,ReservoirAvailableMm,RiverCapacityPct,VegetationCoverPct,LowlandRisk,LeveeStatus
+2024-05-04,68,73,82,61,61,中,正常
+2024-05-05,72,76,70,65,61,中,正常
+2024-05-06,77,80,55,70,61,中,正常
+2024-05-07,81,83,44,75,61,中高,正常
+2024-05-08,86,87,32,81,61,中高,重点河段加密巡查
+2024-05-09,89,89,26,85,61,高,局部堤段发现轻微渗水
+2024-05-10,92,91,20,88,61,高,局部加强巡查并预置抢险物资

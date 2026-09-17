@@ -6,19 +6,19 @@ from tradingagents.dataflows.interface import route_to_vendor
 
 
 @tool
-def get_stock_data(
-    symbol: Annotated[str, "ticker symbol of the company"],
-    start_date: Annotated[str, "Start date in yyyy-mm-dd format"],
-    end_date: Annotated[str, "End date in yyyy-mm-dd format"],
+def get_observations(
+    station: Annotated[str, "水文站点编号"],
+    start_date: Annotated[str, "开始日期，yyyy-mm-dd 格式"],
+    end_date: Annotated[str, "结束日期，yyyy-mm-dd 格式"],
 ) -> str:
     """
-    Retrieve stock price data (OHLCV) for a given ticker symbol.
-    Uses the configured core_stock_apis vendor.
+    获取给定水文站点的观测数据（水位/流量/雨量）。
+    使用已配置的 core_stock_apis 厂商。
     Args:
-        symbol (str): Ticker symbol of the company, e.g. AAPL, TSM
-        start_date (str): Start date in yyyy-mm-dd format
-        end_date (str): End date in yyyy-mm-dd format
+        station (str): 水文站点编号，例如 XIANGJIANG
+        start_date (str): 开始日期，yyyy-mm-dd 格式
+        end_date (str): 结束日期，yyyy-mm-dd 格式
     Returns:
-        str: A formatted dataframe containing the stock price data for the specified ticker symbol in the specified date range.
+        str: 指定日期区间内该站点的观测数据格式化字符串。
     """
-    return route_to_vendor("get_stock_data", symbol, start_date, end_date)
+    return route_to_vendor("get_observations", station, start_date, end_date)

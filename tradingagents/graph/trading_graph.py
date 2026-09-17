@@ -4,29 +4,29 @@ import json
 import logging
 import os
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import yfinance as yf
 from langgraph.prebuilt import ToolNode
 
 # Import the abstract tool methods from agent_utils
 from tradingagents.agents.utils.agent_utils import (
-    build_instrument_context,
-    get_balance_sheet,
-    get_cashflow,
-    get_fundamentals,
-    get_global_news,
-    get_income_statement,
-    get_indicators,
-    get_insider_transactions,
-    get_macro_indicators,
-    get_news,
-    get_prediction_markets,
-    get_stock_data,
-    get_verified_market_snapshot,
-    resolve_instrument_identity,
+    build_area_context,
+    get_environment_risk,
+    get_forward_forecast,
+    get_hydrology_indicators,
+    get_observations,
+    get_rainfall_forecast,
+    get_regional_indicators,
+    get_river_flow,
+    get_social_impact,
+    get_soil_moisture,
+    get_verified_observation_snapshot,
+    get_water_storage,
+    get_weather_warning,
+    resolve_station_identity,
+    search_flood_knowledge,
 )
 from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.dataflows.config import set_config
@@ -38,7 +38,6 @@ from tradingagents.reporting import write_report_tree
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
 from .conditional_logic import ConditionalLogic
 from .propagation import Propagator
-from .reflection import Reflector
 from .setup import GraphSetup
 from .signal_processing import SignalProcessor
 
@@ -148,7 +147,6 @@ class TradingAgentsGraph:
         self.propagator = Propagator(
             max_recur_limit=self.config.get("max_recur_limit", 100),
         )
-        self.reflector = Reflector(self.quick_thinking_llm)
         self.signal_processor = SignalProcessor(self.quick_thinking_llm)
 
         # State tracking
@@ -212,180 +210,49 @@ class TradingAgentsGraph:
         return {
             "market": ToolNode(
                 [
-                    # Core stock data tools
-                    get_stock_data,
+                    # 站点观测数据
+                    get_observations,
                     # Technical indicators
-                    get_indicators,
+                    get_hydrology_indicators,
                     # Deterministic verification snapshot (bound to the analyst
                     # LLM and required by its prompt; must be executable here or
                     # the call fails and the model reports it "unavailable").
-                    get_verified_market_snapshot,
+                    get_verified_observation_snapshot,
                 ]
             ),
             "social": ToolNode(
                 [
                     # News tools for social media analysis
-                    get_news,
+                    get_social_impact,
+                    get_rainfall_forecast,
                 ]
             ),
             "news": ToolNode(
                 [
                     # News and insider information
-                    get_news,
-                    get_global_news,
-                    get_insider_transactions,
-                    get_macro_indicators,
-                    get_prediction_markets,
+                    get_rainfall_forecast,
+                    get_weather_warning,
+                    get_regional_indicators,
+                    get_forward_forecast,
+                    search_flood_knowledge,
                 ]
             ),
             "fundamentals": ToolNode(
                 [
                     # Fundamental analysis tools
-                    get_fundamentals,
-                    get_balance_sheet,
-                    get_cashflow,
-                    get_income_statement,
+                    get_environment_risk,
+                    get_water_storage,
+                    get_river_flow,
+                    get_soil_moisture,
+                    search_flood_knowledge,
                 ]
             ),
         }
 
-    def _resolve_benchmark(self, ticker: str) -> str:
-        """Pick the benchmark ticker for alpha calculation against ``ticker``.
-
-        ``config["benchmark_ticker"]`` overrides everything when set; otherwise
-        the suffix map matches the ticker's exchange suffix (e.g. ``.T`` for
-        Tokyo). US-listed tickers without a dotted suffix fall through to the
-        empty-suffix entry (SPY by default). Unrecognised suffixes (including
-        US tickers with dots like ``BRK.B``) also fall back to the empty-suffix
-        entry, which is the right default because the alpha calculation works
-        in USD.
-        """
-        explicit = self.config.get("benchmark_ticker")
-        if explicit:
-            return explicit
-        benchmark_map = self.config.get("benchmark_map", {})
-        ticker_upper = ticker.upper()
-        for suffix, benchmark in benchmark_map.items():
-            if suffix and ticker_upper.endswith(suffix.upper()):
-                return benchmark
-        return benchmark_map.get("", "SPY")
-
-    def _fetch_returns(
-        self, ticker: str, trade_date: str, holding_days: int = 5,
-        benchmark: str = "SPY",
-    ) -> tuple[float | None, float | None, int | None, str | None]:
-        """Fetch raw and alpha return for ticker over holding_days from trade_date.
-
-        ``benchmark`` is the index used as the alpha baseline (resolved by the
-        caller via ``_resolve_benchmark``). Returns ``(raw_return, alpha_return,
-        holding_days, resolution_date)`` — where ``resolution_date`` is the date
-        of the last price bar used, i.e. when the outcome became known (#1251) —
-        or ``(None, None, None, None)`` when the outcome cannot be settled yet:
-        the full holding window has not traded (#1169), or the symbol is delisted
-        or unreachable.
-        """
-        from tradingagents.dataflows.symbol_utils import normalize_symbol
-
-        try:
-            start = datetime.strptime(trade_date, "%Y-%m-%d")
-            end = start + timedelta(days=holding_days + 7)  # buffer for weekends/holidays
-            end_str = end.strftime("%Y-%m-%d")
-
-            # Normalize so the realized-return lookup hits the same instrument
-            # the analysis priced (e.g. XAUUSD -> GC=F) (#984). The benchmark is
-            # already a canonical Yahoo symbol from ``_resolve_benchmark``.
-            stock = yf.Ticker(normalize_symbol(ticker)).history(start=trade_date, end=end_str)
-            bench = yf.Ticker(benchmark).history(start=trade_date, end=end_str)
-
-            # Require the full holding window in both series. A rerun before it
-            # has traded leaves the entry pending to retry next run, rather than
-            # settling on a premature partial return (#1169).
-            if len(stock) <= holding_days or len(bench) <= holding_days:
-                return None, None, None, None
-
-            raw = float(
-                (stock["Close"].iloc[holding_days] - stock["Close"].iloc[0])
-                / stock["Close"].iloc[0]
-            )
-            bench_ret = float(
-                (bench["Close"].iloc[holding_days] - bench["Close"].iloc[0])
-                / bench["Close"].iloc[0]
-            )
-            alpha = raw - bench_ret
-            # The date of the last price bar used is when this outcome became
-            # known — the point-in-time cutoff for injecting the lesson (#1251).
-            resolution_date = stock.index[holding_days].strftime("%Y-%m-%d")
-            return raw, alpha, holding_days, resolution_date
-        except Exception as e:
-            logger.warning(
-                "Could not resolve outcome for %s on %s vs %s (will retry next run): %s",
-                ticker, trade_date, benchmark, e,
-            )
-            return None, None, None, None
-
-    def _resolve_pending_entries(self, ticker: str) -> None:
-        """Resolve pending log entries for ticker at the start of a new run.
-
-        Fetches returns for each same-ticker pending entry, generates reflections,
-        then writes all updates in a single atomic batch write to avoid redundant I/O.
-        Skips entries whose price data is not yet available (too recent or delisted).
-
-        Trade-off: only same-ticker entries are resolved per run.  Entries for
-        other tickers accumulate until that ticker is run again.
-        """
-        pending = [e for e in self.memory_log.get_pending_entries() if e["ticker"] == ticker]
-        if not pending:
-            return
-
-        benchmark = self._resolve_benchmark(ticker)
-        updates = []
-        for entry in pending:
-            raw, alpha, days, resolution_date = self._fetch_returns(
-                ticker, entry["date"], benchmark=benchmark,
-            )
-            if raw is None:
-                continue  # price not available yet — try again next run
-            reflection = self.reflector.reflect_on_final_decision(
-                final_decision=entry.get("decision", ""),
-                raw_return=raw,
-                alpha_return=alpha,
-                benchmark_name=benchmark,
-            )
-            updates.append({
-                "ticker": ticker,
-                "trade_date": entry["date"],
-                "raw_return": raw,
-                "alpha_return": alpha,
-                "holding_days": days,
-                "reflection": reflection,
-                "resolution_date": resolution_date,
-            })
-
-        if updates:
-            self.memory_log.batch_update_with_outcomes(updates)
-
-    def resolve_instrument_context(self, ticker: str, asset_type: str = "stock") -> str:
-        """Resolve ticker identity once and return the full instrument context.
-
-        Deterministic yfinance lookup (cached, fail-open) injected into a
-        context string so every agent anchors to the real company instead of
-        hallucinating one from the price chart (#814). Both the propagate()
-        path and the CLI call this so the resolved identity reaches the whole
-        graph regardless of entry point.
-        """
-        identity = resolve_instrument_identity(ticker)
-        return build_instrument_context(ticker, asset_type, identity)
-
-    def _memory_as_of(self, trade_date) -> str | None:
-        """Point-in-time cutoff for past-context lessons (#1251).
-
-        A historical/backtest run (trade date before today) filters lessons to
-        those already resolved by the trade date. A current-date run returns
-        None, disabling the filter so live behavior and pre-migration entries
-        (which have no stored resolution date) are unaffected.
-        """
-        td = str(trade_date)
-        return td if td < datetime.now().strftime("%Y-%m-%d") else None
+    def resolve_area_context(self, area_name: str, asset_type: str = "flood") -> str:
+        """解析一次站点身份并返回完整的区域上下文。"""
+        identity = resolve_station_identity(area_name)
+        return build_area_context(area_name, asset_type, identity)
 
     def _run_signature(self, asset_type: str) -> str:
         """Graph-shape inputs that must invalidate a checkpoint if changed.
@@ -401,30 +268,17 @@ class TradingAgentsGraph:
             f"asset={asset_type}",
         ])
 
-    def propagate(self, company_name, trade_date, asset_type: str = "stock"):
-        """Run the trading agents graph for a company on a specific date.
+    def propagate(self, area_name, analysis_date, asset_type: str = "flood"):
+        """对指定区域和日期执行水文防汛研判图。
 
-        ``asset_type`` selects between the stock pipeline (default) and the
-        crypto pipeline (``"crypto"``) shipped in #567 — the CLI auto-detects
-        from the ticker; programmatic callers pass it explicitly. When
-        ``checkpoint_enabled`` is set in config, the graph is recompiled with
-        a per-ticker SqliteSaver so a crashed run can resume from the last
-        successful node on a subsequent invocation with the same ticker+date.
-
-        Returns ``(final_state, signal)`` where ``signal`` is one of the 5-tier
-        ratings (Buy / Overweight / Hold / Underweight / Sell) or ``"REVIEW"``
-        when the decision had no parseable rating (#1170); guard with
-        ``tradingagents.agents.utils.rating.is_review`` before mapping it to the
-        PortfolioRating enum.
+        返回 ``(final_state, signal)``；``signal`` 为红、橙、黄、蓝预警之一，
+        最终输出无法识别时返回 ``"REVIEW"``。防汛模式不执行金融收益回溯。
         """
-        self.ticker = company_name
+        self.ticker = area_name
 
-        # Resolve any pending memory-log entries for this ticker before the pipeline runs.
-        self._resolve_pending_entries(company_name)
-
-        with self.checkpoint_scope(company_name, trade_date, asset_type) as thread_id_value:
+        with self.checkpoint_scope(area_name, analysis_date, asset_type) as thread_id_value:
             return self._run_graph(
-                company_name, trade_date, asset_type=asset_type,
+                area_name, analysis_date, asset_type=asset_type,
                 checkpoint_thread_id=thread_id_value,
             )
 
@@ -506,7 +360,7 @@ class TradingAgentsGraph:
             )
         return write_report_tree(final_state, ticker, save_path)
 
-    def _run_graph(self, company_name, trade_date, asset_type: str = "stock",
+    def _run_graph(self, area_name, analysis_date, asset_type: str = "flood",
                    checkpoint_thread_id: str | None = None):
         """Execute the graph and write the resulting state to disk and memory log."""
         # Initialize state — inject memory log context for PM and the
@@ -514,15 +368,15 @@ class TradingAgentsGraph:
         # historical run, gate lessons to those whose outcome was known by the
         # trade date so a backtest can't learn from the future (#1251).
         past_context = self.memory_log.get_past_context(
-            company_name, as_of=self._memory_as_of(trade_date)
+            area_name, as_of=analysis_date
         )
-        instrument_context = self.resolve_instrument_context(company_name, asset_type)
+        area_context = self.resolve_area_context(area_name, asset_type)
         init_agent_state = self.propagator.create_initial_state(
-            company_name,
-            trade_date,
+            area_name,
+            analysis_date,
             asset_type=asset_type,
             past_context=past_context,
-            instrument_context=instrument_context,
+            area_context=area_context,
         )
         args = self.propagator.get_graph_args()
 
@@ -555,54 +409,54 @@ class TradingAgentsGraph:
         else:
             final_state = self.graph.invoke(graph_input, **args)
 
-        # Store current state for reflection.
+        # Keep the latest state available to callers.
         self.curr_state = final_state
 
         # Log state to disk.
-        self._log_state(trade_date, final_state)
+        self._log_state(analysis_date, final_state)
 
-        # Store decision for deferred reflection on the next same-ticker run.
+        # Store this decision for later runs of the same station.
         self.memory_log.store_decision(
-            ticker=company_name,
-            trade_date=trade_date,
-            final_trade_decision=final_state["final_trade_decision"],
+            station=area_name,
+            analysis_date=analysis_date,
+            final_alert_decision=final_state["final_alert_decision"],
         )
 
         # Clear checkpoint on successful completion to avoid stale state.
-        self.clear_checkpoint_on_success(company_name, trade_date, asset_type)
+        self.clear_checkpoint_on_success(area_name, analysis_date, asset_type)
 
-        return final_state, self.process_signal(final_state["final_trade_decision"])
+        return final_state, self.process_signal(final_state["final_alert_decision"])
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
         self.log_states_dict[str(trade_date)] = {
-            "company_of_interest": final_state["company_of_interest"],
-            "trade_date": final_state["trade_date"],
-            "market_report": final_state["market_report"],
-            "sentiment_report": final_state["sentiment_report"],
-            "news_report": final_state["news_report"],
-            "fundamentals_report": final_state["fundamentals_report"],
-            "investment_debate_state": {
-                "bull_history": final_state["investment_debate_state"]["bull_history"],
-                "bear_history": final_state["investment_debate_state"]["bear_history"],
-                "history": final_state["investment_debate_state"]["history"],
-                "current_response": final_state["investment_debate_state"][
+            "area_of_interest": final_state["area_of_interest"],
+            "analysis_date": final_state["analysis_date"],
+            "hydrology_report": final_state["hydrology_report"],
+            "social_impact_report": final_state["social_impact_report"],
+            "meteorology_report": final_state["meteorology_report"],
+            "environment_report": final_state["environment_report"],
+            "risk_debate_state": {
+                "high_risk_history": final_state["risk_debate_state"]["high_risk_history"],
+                "safety_history": final_state["risk_debate_state"]["safety_history"],
+                "history": final_state["risk_debate_state"]["history"],
+                "current_response": final_state["risk_debate_state"][
                     "current_response"
                 ],
-                "judge_decision": final_state["investment_debate_state"][
+                "judge_decision": final_state["risk_debate_state"][
                     "judge_decision"
                 ],
             },
-            "trader_investment_decision": final_state["trader_investment_plan"],
-            "risk_debate_state": {
-                "aggressive_history": final_state["risk_debate_state"]["aggressive_history"],
-                "conservative_history": final_state["risk_debate_state"]["conservative_history"],
-                "neutral_history": final_state["risk_debate_state"]["neutral_history"],
-                "history": final_state["risk_debate_state"]["history"],
-                "judge_decision": final_state["risk_debate_state"]["judge_decision"],
+            "dispatch_plan": final_state["dispatch_plan"],
+            "response_debate_state": {
+                "aggressive_history": final_state["response_debate_state"]["aggressive_history"],
+                "conservative_history": final_state["response_debate_state"]["conservative_history"],
+                "neutral_history": final_state["response_debate_state"]["neutral_history"],
+                "history": final_state["response_debate_state"]["history"],
+                "judge_decision": final_state["response_debate_state"]["judge_decision"],
             },
-            "investment_plan": final_state["investment_plan"],
-            "final_trade_decision": final_state["final_trade_decision"],
+            "assessment_plan": final_state["assessment_plan"],
+            "final_alert_decision": final_state["final_alert_decision"],
         }
 
         # Save to file. Reject ticker values that would escape the

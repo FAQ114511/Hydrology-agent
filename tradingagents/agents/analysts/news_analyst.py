@@ -1,32 +1,38 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.utils.agent_utils import (
-    get_global_news,
-    get_instrument_context_from_state,
+    get_area_context_from_state,
+    get_forward_forecast,
     get_language_instruction,
-    get_macro_indicators,
-    get_news,
-    get_prediction_markets,
+    get_rainfall_forecast,
+    get_regional_indicators,
+    get_weather_warning,
+    search_flood_knowledge,
 )
 
 
-def create_news_analyst(llm):
-    def news_analyst_node(state):
-        current_date = state["trade_date"]
-        asset_type = state.get("asset_type", "stock")
-        asset_label = "company" if asset_type == "stock" else "asset"
-        instrument_context = get_instrument_context_from_state(state)
+def create_meteorology_analyst(llm):
+    def meteorology_analyst_node(state):
+        current_date = state["analysis_date"]
+        area_context = get_area_context_from_state(state)
 
         tools = [
-            get_news,
-            get_global_news,
-            get_macro_indicators,
-            get_prediction_markets,
+            get_rainfall_forecast,
+            get_weather_warning,
+            get_regional_indicators,
+            get_forward_forecast,
+            search_flood_knowledge,
         ]
 
         system_message = (
-            f"You are a news researcher tasked with analyzing recent news and trends over the past week. Please write a comprehensive report of the current state of the world that is relevant for trading and macroeconomics. Use the available tools: get_news(ticker, start_date, end_date) for {asset_label}-specific news by ticker symbol, get_global_news(curr_date, look_back_days, limit) for broader macroeconomic news, get_macro_indicators(indicator, curr_date, look_back_days) to ground macro commentary in actual data from FRED (e.g. 'cpi', 'core_pce', 'unemployment', 'fed_funds_rate', '10y_treasury', 'yield_curve'), and get_prediction_markets(topic, limit) for live market-implied probabilities of forward-looking events (e.g. 'Fed rate cut', 'recession 2026', geopolitical or sector events). Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
+            "你是一名气象分析师，负责评估研判区域近期和未来的降雨过程及气象风险。"
+            "使用 get_rainfall_forecast 获取站点降雨预报，使用 get_weather_warning 获取气象预警；"
+            "仅在确有必要时用 get_regional_indicators 和 get_forward_forecast 补充区域背景与前瞻信息。"
+            "涉及站点警戒阈值、气象研判规则、处置规程或历史案例时，调用 search_flood_knowledge；"
+            "使用后必须标注返回的 doc_id 和 source。该工具只补充规则与历史经验，不能替代实时观测或天气预报。"
+            "报告应覆盖降雨量级、持续时间、空间影响、未来趋势、已有预警、数据缺口及其对水位上涨的可能影响。"
+            "本地工具返回 NO_DATA_AVAILABLE 时必须如实写明，不能把历史观测当作未来预报，也不能编造天气过程。"
+            "报告末尾附 Markdown 表格汇总时间窗、气象信号、证据来源、可信度与风险含义。"
             + get_language_instruction()
         )
 
@@ -34,14 +40,10 @@ def create_news_analyst(llm):
             [
                 (
                     "system",
-                    "You are a helpful AI assistant, collaborating with other assistants."
-                    " Use the provided tools to progress towards answering the question."
-                    " If you are unable to fully answer, that's OK; another assistant with different tools"
-                    " will help where you left off. Execute what you can to make progress."
-                    " If you or any other assistant has the FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** or deliverable,"
-                    " prefix your response with FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** so the team knows to stop."
-                    " You have access to the following tools: {tool_names}."
-                    " Today's date is {current_date}; treat it as 'now' for all analysis and tool-call date ranges. {instrument_context}\n"
+                    "你是与其他智能体协作的气象分析助手。使用工具推进分析；数据不足时明确报告缺口。"
+                    "若上下文已包含 FINAL ALERT DECISION: **红色预警/橙色预警/黄色预警/蓝色预警**，则停止继续研判。"
+                    "你可使用以下工具：{tool_names}。"
+                    "当前研判日期为 {current_date}，所有分析与工具日期范围以此为准。{area_context}\n"
                     "{system_message}",
                 ),
                 MessagesPlaceholder(variable_name="messages"),
@@ -51,7 +53,7 @@ def create_news_analyst(llm):
         prompt = prompt.partial(system_message=system_message)
         prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
         prompt = prompt.partial(current_date=current_date)
-        prompt = prompt.partial(instrument_context=instrument_context)
+        prompt = prompt.partial(area_context=area_context)
 
         chain = prompt | llm.bind_tools(tools)
         result = chain.invoke(state["messages"])
@@ -63,7 +65,7 @@ def create_news_analyst(llm):
 
         return {
             "messages": [result],
-            "news_report": report,
+            "meteorology_report": report,
         }
 
-    return news_analyst_node
+    return meteorology_analyst_node

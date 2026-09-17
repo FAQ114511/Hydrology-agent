@@ -6,31 +6,28 @@ from tradingagents.dataflows.interface import route_to_vendor
 
 
 @tool
-def get_macro_indicators(
+def get_regional_indicators(
     indicator: Annotated[
         str,
-        "Macro indicator: a friendly alias such as 'cpi', 'core_pce', "
-        "'unemployment', 'fed_funds_rate', '10y_treasury', 'yield_curve', "
-        "'real_gdp', 'vix', or a raw FRED series ID such as 'CPIAUCSL'.",
+        "区域环境指标：如 'soil_saturation'、'vegetation_cover'、"
+        "'land_use' 等友好别名，或原始序列 ID。",
     ],
-    curr_date: Annotated[str, "Current date in yyyy-mm-dd format; the end of the window"],
+    curr_date: Annotated[str, "当前日期，yyyy-mm-dd 格式；作为窗口终点"],
     look_back_days: Annotated[
-        int | None, "Trailing window length in days; omit for a 1-year window"
+        int | None, "回溯窗口天数；省略则使用 1 年窗口"
     ] = None,
 ) -> str:
     """
-    Retrieve a macroeconomic indicator time series from FRED (Federal Reserve
-    Economic Data): policy rates, Treasury yields, inflation, labor, and growth.
-    Returns the series title, units, frequency, the latest value, the change
-    over the window, and a recent observation table. Uses the configured
-    macro_data vendor.
+    获取区域环境指标时间序列。
+    返回序列标题、单位、频率、最新值、窗口内变化量及近期观测表。
+    使用已配置的 macro_data 厂商。
 
     Args:
-        indicator (str): Friendly alias or raw FRED series ID
-        curr_date (str): Current date in yyyy-mm-dd format
-        look_back_days (int): Trailing window length; omit for a 1-year window
+        indicator (str): 友好别名或原始序列 ID
+        curr_date (str): 当前日期，yyyy-mm-dd 格式
+        look_back_days (int): 回溯窗口天数；省略则使用 1 年窗口
 
     Returns:
-        str: A formatted markdown report of the macro series
+        str: 区域指标的格式化 markdown 报告
     """
-    return route_to_vendor("get_macro_indicators", indicator, curr_date, look_back_days)
+    return route_to_vendor("get_regional_indicators", indicator, curr_date, look_back_days)

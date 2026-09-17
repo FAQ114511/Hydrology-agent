@@ -1,66 +1,57 @@
 from tradingagents.agents.utils.agent_utils import (
-    get_instrument_context_from_state,
+    get_area_context_from_state,
     get_language_instruction,
     opponent_argument_or_opening,
 )
 
 
-def create_bear_researcher(llm):
-    def bear_node(state) -> dict:
-        investment_debate_state = state["investment_debate_state"]
-        history = investment_debate_state.get("history", "")
-        bear_history = investment_debate_state.get("bear_history", "")
+def create_safety_researcher(llm):
+    def safety_node(state) -> dict:
+        risk_debate_state = state["risk_debate_state"]
+        history = risk_debate_state.get("history", "")
+        safety_history = risk_debate_state.get("safety_history", "")
 
         current_response = opponent_argument_or_opening(
-            investment_debate_state.get("current_response", ""), "bull analyst"
+            risk_debate_state.get("current_response", ""), "风险研判员"
         )
-        market_research_report = state["market_report"]
-        sentiment_report = state["sentiment_report"]
-        news_report = state["news_report"]
-        fundamentals_report = state["fundamentals_report"]
-        instrument_context = get_instrument_context_from_state(state)
-        asset_type = state.get("asset_type", "stock")
-        target_label = "stock" if asset_type == "stock" else "asset"
-        fundamentals_label = (
-            "Company fundamentals report"
-            if asset_type == "stock"
-            else "Asset fundamentals report (may be unavailable for crypto)"
-        )
+        hydrology_report = state["hydrology_report"]
+        social_impact_report = state["social_impact_report"]
+        meteorology_report = state["meteorology_report"]
+        environment_report = state["environment_report"]
+        area_context = get_area_context_from_state(state)
 
-        prompt = f"""You are a Bear Analyst making the case against investing in the {target_label}. Your goal is to present a well-reasoned argument emphasizing risks, challenges, and negative indicators. Leverage the provided research and data to highlight potential downsides and counter bullish arguments effectively.
+        prompt = f"""你是安全研判员，负责提出风险可控或暂不升级防汛预警的有力、基于证据的论点。审查风险研判员的主张是否受到数据缺口、预报不确定性或过度推断影响。
 
-Key points to focus on:
+重点关注：
+- 水位和流量是否稳定，变化是否足以支持升级预警。
+- 降雨预报、环境和社会影响资料是否缺失或可信度不足。
+- 是否存在蓄水余量、河道行洪能力或趋势趋缓等风险缓冲证据。
+- 用具体数据指出风险侧的薄弱环节，避免证据不足时过度预警。
+- 直接回应风险研判员，以对话方式辩论，不要只罗列资料。
 
-- Risks and Challenges: Highlight factors like market saturation, financial instability, or macroeconomic threats that could hinder the stock's performance.
-- Competitive Weaknesses: Emphasize vulnerabilities such as weaker market positioning, declining innovation, or threats from competitors.
-- Negative Indicators: Use evidence from financial data, market trends, or recent adverse news to support your position.
-- Bull Counterpoints: Critically analyze the bull argument with specific data and sound reasoning, exposing weaknesses or over-optimistic assumptions.
-- Engagement: Present your argument in a conversational style, directly engaging with the bull analyst's points and debating effectively rather than simply listing facts.
-
-Resources available:
-
-{instrument_context}
-Market research report: {market_research_report}
-Social media sentiment report: {sentiment_report}
-Latest world affairs news: {news_report}
-{fundamentals_label}: {fundamentals_report}
-Conversation history of the debate: {history}
-Last bull argument: {current_response}
-Use this information to deliver a compelling bear argument, refute the bull's claims, and engage in a dynamic debate that demonstrates the risks and weaknesses of investing in the {target_label}.
+可用资料：
+{area_context}
+水文报告：{hydrology_report}
+社会影响报告：{social_impact_report}
+气象报告：{meteorology_report}
+环境风险报告：{environment_report}
+辩论历史：{history}
+风险研判员上一轮观点：{current_response}
+请提出风险可控或暂不升级预警的论点，同时不得把缺失数据当成安全证据。
 """ + get_language_instruction()
 
         response = llm.invoke(prompt)
 
-        argument = f"Bear Analyst: {response.content}"
+        argument = f"Safety Analyst: {response.content}"
 
-        new_investment_debate_state = {
+        new_risk_debate_state = {
             "history": history + "\n" + argument,
-            "bear_history": bear_history + "\n" + argument,
-            "bull_history": investment_debate_state.get("bull_history", ""),
+            "safety_history": safety_history + "\n" + argument,
+            "high_risk_history": risk_debate_state.get("high_risk_history", ""),
             "current_response": argument,
-            "count": investment_debate_state["count"] + 1,
+            "count": risk_debate_state["count"] + 1,
         }
 
-        return {"investment_debate_state": new_investment_debate_state}
+        return {"risk_debate_state": new_risk_debate_state}
 
-    return bear_node
+    return safety_node

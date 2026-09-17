@@ -1,18 +1,10 @@
-"""Portfolio Manager: synthesises the risk-analyst debate into the final decision.
-
-Uses LangChain's ``with_structured_output`` so the LLM produces a typed
-``PortfolioDecision`` directly, in a single call.  The result is rendered
-back to markdown for storage in ``final_trade_decision`` so memory log,
-CLI display, and saved reports continue to consume the same shape they do
-today.  When a provider does not expose structured output, the agent falls
-back gracefully to free-text generation.
-"""
+"""预警决策员：综合响应辩论并给出最终防汛预警等级。"""
 
 from __future__ import annotations
 
-from tradingagents.agents.schemas import PortfolioDecision, render_pm_decision
+from tradingagents.agents.schemas import AlertDecision, render_alert_decision
 from tradingagents.agents.utils.agent_utils import (
-    get_instrument_context_from_state,
+    get_area_context_from_state,
     get_language_instruction,
 )
 from tradingagents.agents.utils.structured import (
@@ -22,74 +14,73 @@ from tradingagents.agents.utils.structured import (
 )
 
 
-def create_portfolio_manager(llm):
-    structured_llm = bind_structured(llm, PortfolioDecision, "Portfolio Manager")
+def create_alert_manager(llm):
+    structured_llm = bind_structured(llm, AlertDecision, "Alert Manager")
 
-    def portfolio_manager_node(state) -> dict:
-        instrument_context = get_instrument_context_from_state(state)
+    def alert_manager_node(state) -> dict:
+        area_context = get_area_context_from_state(state)
 
-        history = state["risk_debate_state"]["history"]
-        risk_debate_state = state["risk_debate_state"]
-        research_plan = state["investment_plan"]
-        trader_plan = state["trader_investment_plan"]
+        history = state["response_debate_state"]["history"]
+        response_debate_state = state["response_debate_state"]
+        assessment_plan = state["assessment_plan"]
+        dispatch_plan = state["dispatch_plan"]
 
         past_context = state.get("past_context", "")
         lessons_line = (
-            f"- Lessons from prior decisions and outcomes:\n{past_context}\n"
+            f"- 同站点历史预警、实际水情与处置经验：\n{past_context}\n"
             if past_context
             else ""
         )
 
-        prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
+        prompt = f"""你是预警决策员。请综合三方响应辩论，给出最终防汛预警等级和行动结论。
 
-{instrument_context}
+{area_context}
 
 ---
 
-**Rating Scale** (use exactly one):
-- **Buy**: Strong conviction to enter or add to position
-- **Overweight**: Favorable outlook, gradually increase exposure
-- **Hold**: Maintain current position, no action needed
-- **Underweight**: Reduce exposure, take partial profits
-- **Sell**: Exit position or avoid entry
+**预警等级**（恰好选择一个）：
+- **红色预警**：极高风险，立即启动最高级别应急处置
+- **橙色预警**：高风险，启动应急响应并严密监测
+- **黄色预警**：风险明显，加强监测、巡查和准备
+- **蓝色预警**：一般风险或证据不足，维持常规监测并持续关注
 
-**Context:**
-- Research Manager's investment plan: **{research_plan}**
-- Trader's transaction proposal: **{trader_plan}**
+**上下文：**
+- 研判经理方案：**{assessment_plan}**
+- 处置员方案：**{dispatch_plan}**
 {lessons_line}
-**Risk Analysts Debate History:**
+**响应研判历史：**
 {history}
 
 ---
 
-Ground every conclusion in specific evidence from the analysts. Commit to a directional call only when the evidence clearly supports one; choose Hold when the case is balanced, materially conflicting, ambiguous, or insufficient to justify changing exposure, rather than forcing a direction to appear decisive. Weigh the analysts on their merits, independent of speaking order.
+所有结论必须基于分析师的具体证据。只有证据明确支持时才提高等级；证据平衡、明显冲突、含糊或不足时选择蓝色预警，不能为了显得果断而强行升级。独立评估三方论点，不受发言顺序影响。
 
 {NO_EXTERNAL_TOOLS}{get_language_instruction()}"""
 
-        final_trade_decision = invoke_structured_or_freetext(
+        final_alert_decision = invoke_structured_or_freetext(
             structured_llm,
             llm,
             prompt,
-            render_pm_decision,
-            "Portfolio Manager",
+            render_alert_decision,
+            "Alert Manager",
         )
 
-        new_risk_debate_state = {
-            "judge_decision": final_trade_decision,
-            "history": risk_debate_state["history"],
-            "aggressive_history": risk_debate_state["aggressive_history"],
-            "conservative_history": risk_debate_state["conservative_history"],
-            "neutral_history": risk_debate_state["neutral_history"],
+        new_response_debate_state = {
+            "judge_decision": final_alert_decision,
+            "history": response_debate_state["history"],
+            "aggressive_history": response_debate_state["aggressive_history"],
+            "conservative_history": response_debate_state["conservative_history"],
+            "neutral_history": response_debate_state["neutral_history"],
             "latest_speaker": "Judge",
-            "current_aggressive_response": risk_debate_state["current_aggressive_response"],
-            "current_conservative_response": risk_debate_state["current_conservative_response"],
-            "current_neutral_response": risk_debate_state["current_neutral_response"],
-            "count": risk_debate_state["count"],
+            "current_aggressive_response": response_debate_state["current_aggressive_response"],
+            "current_conservative_response": response_debate_state["current_conservative_response"],
+            "current_neutral_response": response_debate_state["current_neutral_response"],
+            "count": response_debate_state["count"],
         }
 
         return {
-            "risk_debate_state": new_risk_debate_state,
-            "final_trade_decision": final_trade_decision,
+            "response_debate_state": new_response_debate_state,
+            "final_alert_decision": final_alert_decision,
         }
 
-    return portfolio_manager_node
+    return alert_manager_node

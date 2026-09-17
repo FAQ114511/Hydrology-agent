@@ -184,15 +184,17 @@ class TestStructuredOutputCapabilityDispatch:
 # ---------------------------------------------------------------------------
 
 
-def _has_real_deepseek_key():
+def _run_live_deepseek_test():
+    if os.environ.get("RUN_LIVE_LLM_TESTS") != "1":
+        return False
     key = os.environ.get("DEEPSEEK_API_KEY", "")
     return bool(key) and key != "placeholder"
 
 
 @pytest.mark.integration
 @pytest.mark.skipif(
-    not _has_real_deepseek_key(),
-    reason="DEEPSEEK_API_KEY not set (or placeholder); skipping live API call",
+    not _run_live_deepseek_test(),
+    reason="set RUN_LIVE_LLM_TESTS=1 and a real DEEPSEEK_API_KEY to run live API tests",
 )
 class TestDeepSeekLiveStructuredOutput:
     """End-to-end: a real DeepSeek V4-flash call returns a typed instance.
