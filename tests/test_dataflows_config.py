@@ -54,8 +54,8 @@ class DataflowsConfigIsolationTests(unittest.TestCase):
 
     def test_nested_dict_updates_merge_one_level_deep(self):
         set_config({"tool_vendors": {"get_observations": "online_api"}})
-        set_config({"tool_vendors": {"get_weather_warning": "local_csv"}})
+        set_config({"tool_vendors": {"get_realtime_weather": "local_csv"}})
 
         fresh = get_config()
         self.assertEqual(fresh["tool_vendors"]["get_observations"], "online_api")
-        self.assertEqual(fresh["tool_vendors"]["get_weather_warning"], "local_csv")
+        self.assertEqual(fresh["tool_vendors"]["get_realtime_weather"], "local_csv")

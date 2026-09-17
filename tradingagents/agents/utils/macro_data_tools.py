@@ -7,6 +7,7 @@ from tradingagents.dataflows.interface import route_to_vendor
 
 @tool
 def get_regional_indicators(
+    station: Annotated[str, "水文站点编号，例如 XIANGJIANG"],
     indicator: Annotated[
         str,
         "区域环境指标：如 'soil_saturation'、'vegetation_cover'、"
@@ -23,6 +24,7 @@ def get_regional_indicators(
     使用已配置的 macro_data 厂商。
 
     Args:
+        station (str): 水文站点编号
         indicator (str): 友好别名或原始序列 ID
         curr_date (str): 当前日期，yyyy-mm-dd 格式
         look_back_days (int): 回溯窗口天数；省略则使用 1 年窗口
@@ -30,4 +32,6 @@ def get_regional_indicators(
     Returns:
         str: 区域指标的格式化 markdown 报告
     """
-    return route_to_vendor("get_regional_indicators", indicator, curr_date, look_back_days)
+    return route_to_vendor(
+        "get_regional_indicators", station, indicator, curr_date, look_back_days
+    )

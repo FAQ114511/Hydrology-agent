@@ -56,6 +56,7 @@ class TestCliSkipsPromptsFromEnv(unittest.TestCase):
              mock.patch.object(m, "fetch_announcements", return_value=None), \
              mock.patch.object(m, "display_announcements"), \
              mock.patch.object(m, "get_station", return_value="XIANGJIANG"), \
+             mock.patch.object(m, "get_user_data_dir", return_value=None), \
              mock.patch.object(m, "get_analysis_date", return_value="2026-05-29"), \
              mock.patch.object(m, "select_analysts", return_value=[]), \
              mock.patch.object(m, "select_research_depth", return_value=1), \
@@ -101,6 +102,7 @@ class TestResearchDepthSkippedFromEnv(unittest.TestCase):
              mock.patch.object(m, "fetch_announcements", return_value=None), \
              mock.patch.object(m, "display_announcements"), \
              mock.patch.object(m, "get_station", return_value="XIANGJIANG"), \
+             mock.patch.object(m, "get_user_data_dir", return_value=None), \
              mock.patch.object(m, "get_analysis_date", return_value="2026-05-29"), \
              mock.patch.object(m, "select_analysts", return_value=[]), \
              mock.patch.object(m, "select_research_depth") as prompt_depth, \
@@ -131,6 +133,7 @@ class TestReasoningEffortSkippedFromEnv(unittest.TestCase):
              mock.patch.object(m, "fetch_announcements", return_value=None), \
              mock.patch.object(m, "display_announcements"), \
              mock.patch.object(m, "get_station", return_value="XIANGJIANG"), \
+             mock.patch.object(m, "get_user_data_dir", return_value=None), \
              mock.patch.object(m, "get_analysis_date", return_value="2026-05-29"), \
              mock.patch.object(m, "select_analysts", return_value=[]), \
              mock.patch.object(m, "select_research_depth", return_value=1), \

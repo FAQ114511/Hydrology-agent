@@ -50,7 +50,7 @@ class AgentState(MessagesState):
     hydrology_report: Annotated[str, "水文分析师报告"]
     social_impact_report: Annotated[str, "社会影响分析师报告"]
     meteorology_report: Annotated[
-        str, "气象分析师报告（降雨预报与气象预警）"
+        str, "气象分析师报告（实时气象与降雨预报）"
     ]
     environment_report: Annotated[str, "环境风险分析师报告"]
 

@@ -5,22 +5,49 @@ import re
 from pathlib import Path
 
 from .corpus import KnowledgeDocument, build_corpus
+from .synonyms import SYNONYMS
 
-_ASCII_RE = re.compile(r"[a-z0-9_]+")
+_SYNONYM_WEIGHT = 0.4
+
+_ALNUM_RE = re.compile(r"[a-z0-9]+(?:\.[0-9]+)?")
+_NUMERIC_RE = re.compile(r"^\d+(?:\.\d+)?$")
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_KNOWLEDGE_DIR = _PROJECT_ROOT / "runtime" / "knowledge"
 
 
+def _canonical_number(token: str) -> str:
+    """把 36.0 与 36 归一成同一个 token，避免小数写法差异造成漏召回。"""
+    if "." not in token:
+        return token
+    return token.rstrip("0").rstrip(".") or token
+
+
 def _tokenize(text: str) -> list[str]:
     lowered = (text or "").lower()
-    tokens = _ASCII_RE.findall(lowered)
+    tokens = []
+    for token in _ALNUM_RE.findall(lowered):
+        tokens.append(_canonical_number(token) if _NUMERIC_RE.match(token) else token)
     for chunk in _CJK_RE.findall(lowered):
         if len(chunk) == 1:
             tokens.append(chunk)
         else:
             tokens.extend(chunk[i : i + 2] for i in range(len(chunk) - 1))
     return tokens
+
+
+def _expansion_tokens(query: str, base_tokens: list[str]) -> list[str]:
+    """把查询里命中的口语/缩写替换成规范写法，用于补充召回。"""
+    expanded = " ".join(
+        synonym
+        for key, synonyms in SYNONYMS.items()
+        if key in query
+        for synonym in synonyms
+    )
+    if not expanded:
+        return []
+    base = set(base_tokens)
+    return [token for token in _tokenize(expanded) if token not in base]
 
 
 class FloodKnowledgeRetriever:
@@ -69,8 +96,13 @@ class FloodKnowledgeRetriever:
         query_tokens = _tokenize(query)
         if not query_tokens:
             return [self.documents[i] for i in candidates[:k]]
+        extra_tokens = _expansion_tokens(query, query_tokens)
         scored = [
-            (self._score(query_tokens, index, station), index)
+            (
+                self._score(query_tokens, index, station)
+                + _SYNONYM_WEIGHT * self._score(extra_tokens, index, None),
+                index,
+            )
             for index in candidates
         ]
         scored = [(score, index) for score, index in scored if score > 0]

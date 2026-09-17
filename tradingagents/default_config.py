@@ -145,6 +145,8 @@ def build_hydrology_config() -> dict:
     config["memory_log_path"] = os.path.join(runtime_dir, "memory", "hydrology_memory.md")
     config["results_dir"] = os.path.join(_PROJECT_ROOT, "results")
     config["data_cache_dir"] = os.path.join(runtime_dir, "cache")
+    config["local_data_dir"]=None
+    config["stations_path"]=None
 
     config["weather_api_timeout"] = 10
     config["weather_api_retries"] = 2
@@ -152,6 +154,9 @@ def build_hydrology_config() -> dict:
     config["weather_cache_ttl_seconds"] = 900
     config["weather_cache_dir"] = os.path.join(runtime_dir, "cache", "weather")
     config["weather_fallback_to_local"] = True
+    config["weather_realtime_past_days"] = 7
+    # forecast_days 含当天，取 3 才能真正覆盖「未来 48 小时」。
+    config["weather_realtime_forecast_days"] = 3
 
     config["data_vendors"] = {
         "core_stock_apis": "local_csv",
@@ -163,7 +168,7 @@ def build_hydrology_config() -> dict:
     }
     config["tool_vendors"] = {
         "get_rainfall_forecast": "online_api,local_csv",
-        "get_weather_warning": "local_csv",
+        "get_realtime_weather": "online_api",
         "get_social_impact": "local_csv",
     }
     return config

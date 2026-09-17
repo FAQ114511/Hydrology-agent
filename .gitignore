@@ -223,3 +223,7 @@ __marimo__/
 reports/
 results/
 runtime/cache/
+runtime/rag_eval/
+
+# 误克隆到项目内部的同名仓库
+Hydrology-agent/

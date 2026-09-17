@@ -7,6 +7,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, RemoveMessage
 
+
 # 从各独立工具文件导入
 from tradingagents.agents.utils.core_stock_tools import get_observations
 from tradingagents.agents.utils.fundamental_data_tools import (
@@ -19,8 +20,8 @@ from tradingagents.agents.utils.macro_data_tools import get_regional_indicators
 from tradingagents.agents.utils.market_data_validation_tools import get_verified_observation_snapshot
 from tradingagents.agents.utils.news_data_tools import (
     get_rainfall_forecast,
+    get_realtime_weather,
     get_social_impact,
-    get_weather_warning,
 )
 from tradingagents.agents.utils.prediction_markets_tools import get_forward_forecast
 from tradingagents.agents.utils.rag_tools import search_flood_knowledge
@@ -36,7 +37,7 @@ __all__ = [
     "get_river_flow",
     "get_soil_moisture",
     "get_rainfall_forecast",
-    "get_weather_warning",
+    "get_realtime_weather",
     "get_social_impact",
     "get_regional_indicators",
     "get_forward_forecast",
@@ -51,10 +52,9 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_STATIONS_PATH = (
+_DEFAULT_STATIONS_PATH = (
     Path(__file__).resolve().parents[3] / "runtime" / "knowledge" / "stations.json"
 )
-
 
 def get_language_instruction() -> str:
     """返回配置输出语言的提示词指令。
@@ -85,16 +85,19 @@ def opponent_argument_or_opening(text: str, opponent: str) -> str:
 
 
 @functools.lru_cache(maxsize=256)
-def resolve_station_identity(station: str) -> dict:
+def resolve_station_identity(station: str, stations_path: str | None = None) -> dict:
     """解析站点的确定性身份元数据（站点名、所在河流、流域等）。
 
     它的存在是为了阻止流水线在图表形态提示出「另一个区域」时臆造出不同的
     站点：没有真值名称，分析师会把水位走势套进一个叙事并编造身份，进而
     级联影响所有下游智能体。
 
-    站点身份只来自 ``runtime/knowledge/stations.json``，不发起网络请求。
+    站点身份只来自配置指定的 ``stations.json``，不发起网络请求：
+    ``stations_path`` 为 None 时用内置的 ``runtime/knowledge/stations.json``，
+    否则读用户目录里的同名文件。路径是缓存 key 的一部分，换目录不会命中旧站点的缓存。
     """
-    data = json.loads(_STATIONS_PATH.read_text(encoding="utf-8"))
+    path = Path(stations_path).expanduser() if stations_path else _DEFAULT_STATIONS_PATH
+    data = json.loads(path.read_text(encoding="utf-8"))
     return data.get(str(station).upper(), {})
 
 

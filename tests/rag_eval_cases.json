@@ -1,0 +1,245 @@
+[
+  {
+    "id": "Q01",
+    "category": "station",
+    "query": "XIANGJIANG 的警戒水位是多少米",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["station:XIANGJIANG"]
+  },
+  {
+    "id": "Q02",
+    "category": "station",
+    "query": "这个站点的保证水位是多少",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["station:XIANGJIANG"]
+  },
+  {
+    "id": "Q03",
+    "category": "station",
+    "query": "XIANGJIANG 的警戒流量和保证流量分别是多少",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["station:XIANGJIANG"]
+  },
+  {
+    "id": "Q04",
+    "category": "station",
+    "query": "湘江示范站属于哪个流域，位于哪个省",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["station:XIANGJIANG"]
+  },
+  {
+    "id": "Q05",
+    "category": "station",
+    "query": "36.0 米对应的预警等级是什么",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["alert_rules:XIANGJIANG", "flood_guidelines:2"]
+  },
+  {
+    "id": "Q06",
+    "category": "station",
+    "query": "红色预警的水位阈值和 24 小时雨量阈值",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["alert_rules:XIANGJIANG", "flood_guidelines:2"]
+  },
+  {
+    "id": "Q07",
+    "category": "station",
+    "query": "warning_level_m 这个字段代表什么",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["station:XIANGJIANG"]
+  },
+  {
+    "id": "Q08",
+    "category": "station",
+    "query": "站点的经纬度坐标是多少",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["station:XIANGJIANG"]
+  },
+
+  {
+    "id": "Q09",
+    "category": "guideline",
+    "query": "土壤饱和度高对后续产流有什么影响",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["flood_guidelines:3"]
+  },
+  {
+    "id": "Q10",
+    "category": "guideline",
+    "query": "为什么黄色预警下要提前转移重点区域人员",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["flood_guidelines:1", "flood_guidelines:5"]
+  },
+  {
+    "id": "Q11",
+    "category": "guideline",
+    "query": "缺少真实警戒水位数据时应该怎么处理",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["flood_guidelines:6"]
+  },
+  {
+    "id": "Q12",
+    "category": "guideline",
+    "query": "什么条件下应该从黄色预警升级到橙色预警",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["flood_guidelines:5", "alert_rules:XIANGJIANG"]
+  },
+  {
+    "id": "Q13",
+    "category": "guideline",
+    "query": "研判流程的第一步是什么",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["flood_guidelines:4"]
+  },
+  {
+    "id": "Q14",
+    "category": "guideline",
+    "query": "最终输出规范要求预警必须写成哪几种等级",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["flood_guidelines:7"]
+  },
+  {
+    "id": "Q15",
+    "category": "guideline",
+    "query": "堤防出现渗水或险情时如何调整响应",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["flood_guidelines:3", "flood_guidelines:5"]
+  },
+  {
+    "id": "Q16",
+    "category": "guideline",
+    "query": "社会影响数据能否单独决定预警等级",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["flood_guidelines:3"]
+  },
+
+  {
+    "id": "Q17",
+    "category": "case",
+    "query": "2024-05-10 的案例最高水位是多少",
+    "station": "XIANGJIANG",
+    "kind": "case",
+    "relevant_doc_ids": ["historical_cases:0"]
+  },
+  {
+    "id": "Q18",
+    "category": "case",
+    "query": "哪个案例提到堤防局部轻微渗水",
+    "station": "XIANGJIANG",
+    "kind": "case",
+    "relevant_doc_ids": ["historical_cases:2"]
+  },
+  {
+    "id": "Q19",
+    "category": "case",
+    "query": "案例二描述的是什么情景",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["historical_cases:1"]
+  },
+  {
+    "id": "Q20",
+    "category": "case",
+    "query": "历史案例中的最大流量是多少",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["historical_cases:0"]
+  },
+  {
+    "id": "Q21",
+    "category": "case",
+    "query": "2024-05-06 到 2024-05-10 的降雨特征",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["historical_cases:0"]
+  },
+  {
+    "id": "Q22",
+    "category": "case",
+    "query": "蓝色预警情景的历史案例",
+    "station": "XIANGJIANG",
+    "kind": "case",
+    "relevant_doc_ids": ["historical_cases:1"]
+  },
+  {
+    "id": "Q23",
+    "category": "case",
+    "query": "检索说明里对历史案例的使用有什么限制",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["historical_cases:3"]
+  },
+
+  {
+    "id": "Q24",
+    "category": "term",
+    "query": "超警是什么意思",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["flood_guidelines:6", "station:XIANGJIANG"]
+  },
+  {
+    "id": "Q25",
+    "category": "term",
+    "query": "红警的触发条件",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["alert_rules:XIANGJIANG"]
+  },
+  {
+    "id": "Q26",
+    "category": "term",
+    "query": "库容余量低意味着什么",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["flood_guidelines:3"]
+  },
+  {
+    "id": "Q27",
+    "category": "term",
+    "query": "行洪余量不足会带来什么风险",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["flood_guidelines:3"]
+  },
+  {
+    "id": "Q28",
+    "category": "term",
+    "query": "湘江站的水位红线在哪里",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["station:XIANGJIANG", "alert_rules:XIANGJIANG"]
+  },
+  {
+    "id": "Q29",
+    "category": "term",
+    "query": "低洼区和沿岸道路的积水风险",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["station:XIANGJIANG"]
+  },
+  {
+    "id": "Q30",
+    "category": "term",
+    "query": "黄警期间需要做哪些处置动作",
+    "station": "XIANGJIANG",
+    "kind": null,
+    "relevant_doc_ids": ["flood_guidelines:1", "flood_guidelines:5"]
+  }
+]

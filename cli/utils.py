@@ -21,9 +21,14 @@ ANALYST_ORDER = [
     ("环境风险分析师", AnalystType.FUNDAMENTALS),
 ]
 
-def load_station_ids() -> list[str]:
-    """Return the station identifiers documented in the hydrology knowledge base."""
-    stations = json.loads(STATIONS_PATH.read_text(encoding="utf-8"))
+def load_station_ids(stations_path: str | Path | None = None) -> list[str]:
+    """Return the selectable station identifiers.
+
+    ``stations_path`` points at a user-supplied stations.json; omitting it keeps
+    the built-in knowledge base.
+    """
+    path = Path(stations_path).expanduser() if stations_path else STATIONS_PATH
+    stations = json.loads(path.read_text(encoding="utf-8"))
     return sorted(key for key, value in stations.items() if not key.startswith("_") and isinstance(value, dict))
 
 
@@ -31,9 +36,9 @@ def normalize_station(station: str) -> str:
     return station.strip().upper()
 
 
-def get_station(default: str = "XIANGJIANG") -> str:
+def get_station(default: str = "XIANGJIANG", stations_path: str | Path | None = None) -> str:
     """Prompt for a station and validate it against ``stations.json``."""
-    station_ids = load_station_ids()
+    station_ids = load_station_ids(stations_path)
     default_station = normalize_station(default)
 
     def validate(value: str):
@@ -62,6 +67,29 @@ def get_station(default: str = "XIANGJIANG") -> str:
         console.print(f"\n[red]Unknown station. Available: {', '.join(station_ids)}[/red]")
         exit(1)
     return station
+
+
+def get_user_data_dir() -> str | None:
+    """Prompt for an optional directory with the user's own hydrology data.
+
+    Empty input keeps the built-in demo dataset.
+    """
+    answer = questionary.text(
+        "Enter your hydrology data directory (leave empty for the built-in demo data):",
+        default="",
+        style=questionary.Style(
+            [
+                ("text", "fg:green"),
+                ("highlighted", "noinherit"),
+            ]
+        ),
+    ).ask()
+
+    if answer is None:
+        console.print("\n[red]Cancelled. Exiting...[/red]")
+        exit(1)
+    text = answer.strip()
+    return str(Path(text).expanduser().resolve()) if text else None
 
 
 def get_analysis_date() -> str:

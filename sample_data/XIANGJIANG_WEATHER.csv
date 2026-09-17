@@ -1,4 +1,4 @@
-IssuedAt,ValidDate,ForecastRainfallMm,RainProbabilityPct,WarningType,WarningLevel,WarningText
+﻿IssuedAt,ValidDate,ForecastRainfallMm,RainProbabilityPct,WarningType,WarningLevel,WarningText
 2024-05-07 08:00:00,2024-05-07,42,85,暴雨,黄色,预计出现持续强降雨并伴有短时强降水
 2024-05-08 08:00:00,2024-05-08,58,90,暴雨,橙色,流域降雨增强需防范快速汇流
 2024-05-09 08:00:00,2024-05-09,62,90,暴雨,橙色,强降雨持续且中小河流水位可能上涨

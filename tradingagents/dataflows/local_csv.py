@@ -48,6 +48,10 @@ def _data_dir() -> str:
         "sample_data",
     )
 
+def _data_source_label() -> str:
+    """观测数据的来源标签：用户目录 vs 内置演示数据。"""
+    return "用户提供数据" if get_config().get("local_data_dir") else "内置模拟数据"
+
 
 def _load_auxiliary(station: str, suffix: str) -> pd.DataFrame:
     """加载站点配套的模拟环境/气象/社会影响 CSV。"""
@@ -118,7 +122,7 @@ def get_observations(station: str, start_date: str, end_date: str) -> str:
         )
     csv_string = df.to_csv(index=False)
     header = (
-        f"# {station.upper()} 站水文观测（{start_date} 至 {end_date}，本地 CSV）\n"
+        f"# {station.upper()} 站水文观测（{start_date} 至 {end_date}，{_data_source_label()}）\n"
         f"# 列：Date, WaterLevel(m), Flow(m3/s), Rainfall(mm)\n"
         f"# 记录总数：{len(df)}\n\n"
     )
@@ -197,7 +201,7 @@ def build_local_observation_snapshot(
     recent = df.tail(window)
 
     lines = [
-        f"## {station.upper()} 站校验观测快照",
+        f"## {station.upper()} 站校验观测快照（{_data_source_label()}）",
         "",
         f"- 请求研判日期：{curr_date}",
         f"- 最新观测行：{latest_date}",
@@ -270,34 +274,21 @@ def get_rainfall_forecast(station: str, start_date: str, end_date: str) -> str:
     return "## 降雨预报（虚拟模拟数据）\n\n" + df.to_string(index=False)
 
 
-def get_weather_warning(curr_date: str, look_back_days: int = None, limit: int = None) -> str:
-    df = _load_auxiliary("XIANGJIANG", "WEATHER")
-    df["ValidDate"] = pd.to_datetime(df["ValidDate"], errors="coerce")
-    end = pd.to_datetime(curr_date)
-    start = end - pd.Timedelta(days=look_back_days or 7)
-    df = df[(df["ValidDate"] >= start) & (df["ValidDate"] <= end)]
-    if limit:
-        df = df.tail(limit)
-    if df.empty:
-        return "NO_DATA_AVAILABLE：指定日期附近无气象预警模拟数据。"
-    return "## 气象预警（虚拟模拟数据）\n\n" + df.to_string(index=False)
-
-
 def get_social_impact(station: str) -> str:
     return _format_row(f"{station.upper()} 社会影响（虚拟模拟数据）", _latest_auxiliary(station, "SOCIAL", "9999-12-31"))
 
 
 def get_regional_indicators(
-    indicator: str, curr_date: str, look_back_days: int = None
+    station: str, indicator: str, curr_date: str, look_back_days: int = None
 ) -> str:
-    row = _latest_auxiliary("XIANGJIANG", "ENVIRONMENT", curr_date)
+    row = _latest_auxiliary(station, "ENVIRONMENT", curr_date)
     aliases = {"soil_saturation": "SoilSaturationPct", "vegetation_cover": "VegetationCoverPct", "river_capacity": "RiverCapacityPct"}
     column = aliases.get(indicator, indicator)
     if column not in row.index:
         return f"NO_DATA_AVAILABLE：未提供区域指标 '{indicator}'。"
-    return f"## 区域指标（虚拟模拟数据）\n\n- {column}: {row[column]}\n- Date: {row['Date']}"
+    return f"## {station.upper()} 区域指标（虚拟模拟数据）\n\n- {column}: {row[column]}\n- Date: {row['Date']}"
 
 
-def get_forward_forecast(topic: str, limit: int = None) -> str:
-    df = _load_auxiliary("XIANGJIANG", "WEATHER").tail(limit or 6)
-    return f"## 前瞻预报：{topic}（虚拟模拟数据）\n\n" + df.to_string(index=False)
+def get_forward_forecast(station: str, topic: str, limit: int = None) -> str:
+    df = _load_auxiliary(station, "WEATHER").tail(limit or 6)
+    return f"## {station.upper()} 前瞻预报：{topic}（虚拟模拟数据）\n\n" + df.to_string(index=False)

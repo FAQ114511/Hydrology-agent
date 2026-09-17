@@ -13,5 +13,33 @@
     "warning_flow_m3s": 3400,
     "guarantee_flow_m3s": 4200,
     "historical_flood_note": "虚拟历史记录：高水位期间低洼区和沿岸道路存在积水风险。"
+  },
+  "ZHUJIANG": {
+    "station_name": "珠江示范站",
+    "river": "珠江",
+    "basin": "珠江流域",
+    "province": "广东省",
+    "city": "广州市",
+    "latitude": 23.13,
+    "longitude": 113.26,
+    "warning_level_m": 7.5,
+    "guarantee_level_m": 8.5,
+    "warning_flow_m3s": 12000,
+    "guarantee_flow_m3s": 15000,
+    "historical_flood_note": "虚拟历史记录：洪潮相遇时沿岸低洼区与地下空间存在倒灌风险。"
+  },
+  "DONGJIANG": {
+    "station_name": "东江示范站",
+    "river": "东江",
+    "basin": "东江流域（珠江水系）",
+    "province": "广东省",
+    "city": "惠州市",
+    "latitude": 23.09,
+    "longitude": 114.4,
+    "warning_level_m": 12.0,
+    "guarantee_level_m": 13.5,
+    "warning_flow_m3s": 5000,
+    "guarantee_flow_m3s": 6500,
+    "historical_flood_note": "虚拟历史记录：台风季强降雨易造成中下游河段快速涨水与堤防渗透险情。"
   }
 }

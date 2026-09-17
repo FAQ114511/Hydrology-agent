@@ -24,26 +24,24 @@ def get_rainfall_forecast(
     return route_to_vendor("get_rainfall_forecast", station, start_date, end_date)
 
 @tool
-def get_weather_warning(
+def get_realtime_weather(
+    station: Annotated[str, "水文站点编号"],
     curr_date: Annotated[str, "当前日期，yyyy-mm-dd 格式"],
-    look_back_days: Annotated[int | None, "回溯天数；省略则使用配置默认值"] = None,
-    limit: Annotated[int | None, "最多返回条数；省略则使用配置默认值"] = None,
 ) -> str:
     """
-    获取气象预警数据。
-    使用已配置的 news_data 厂商。look_back_days 与 limit 的默认值来自
-    DEFAULT_CONFIG（global_news_lookback_days、global_news_article_limit）；
-    传入显式值可覆盖。
+    获取站点实时气象信息：最近一小时降雨、过去 24/72 小时与 7 天累积降雨、
+    未来 24/48 小时预报降雨、0-7cm 土壤墒情。
+    数据来自 Open-Meteo 网格模式实况，不是地面气象站观测，报告中必须注明。
+    仅支持当前与未来日期；历史日期返回不可用提示，请改用 get_rainfall_forecast。
 
     Args:
-        curr_date (str): 当前日期，yyyy-mm-dd 格式
-        look_back_days (int): 回溯天数；省略则继承配置
-        limit (int): 最大返回条数；省略则继承配置
+        station (str): 水文站点编号
+        curr_date (str): 当前研判日期，yyyy-mm-dd 格式
 
     Returns:
-        str: 包含气象预警数据的格式化字符串
+        str: 包含实时降雨与土壤墒情的格式化字符串
     """
-    return route_to_vendor("get_weather_warning", curr_date, look_back_days, limit)
+    return route_to_vendor("get_realtime_weather", station, curr_date)
 
 @tool
 def get_social_impact(

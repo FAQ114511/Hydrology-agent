@@ -17,9 +17,8 @@ from .local_csv import (
     get_social_impact as get_local_social_impact,
     get_soil_moisture as get_local_soil_moisture,
     get_water_storage as get_local_water_storage,
-    get_weather_warning as get_local_weather_warning,
 )
-from .weather_api import get_online_rainfall_forecast
+from .weather_api import get_online_rainfall_forecast, get_online_realtime_weather
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +46,10 @@ TOOLS_CATEGORIES = {
         ]
     },
     "news_data": {
-        "description": "降雨预报、气象预警与社会影响",
+        "description": "降雨预报、实时气象与社会影响",
         "tools": [
             "get_rainfall_forecast",
-            "get_weather_warning",
+            "get_realtime_weather",
             "get_social_impact",
         ]
     },
@@ -108,8 +107,8 @@ VENDOR_METHODS = {
         "local_csv": get_local_rainfall_forecast,
         "online_api": get_online_rainfall_forecast,
     },
-    "get_weather_warning": {
-        "local_csv": get_local_weather_warning,
+    "get_realtime_weather": {
+        "online_api": get_online_realtime_weather,
     },
     "get_social_impact": {
         "local_csv": get_local_social_impact,

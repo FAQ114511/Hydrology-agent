@@ -5,5 +5,17 @@
     "yellow": {"water_level_m": 35.0, "rainfall_24h_mm": 80},
     "orange": {"water_level_m": 36.0, "rainfall_24h_mm": 120},
     "red": {"water_level_m": 37.5, "rainfall_24h_mm": 200}
+  },
+  "ZHUJIANG": {
+    "blue": {"water_level_m": 7.0, "rainfall_24h_mm": 60},
+    "yellow": {"water_level_m": 7.5, "rainfall_24h_mm": 100},
+    "orange": {"water_level_m": 8.0, "rainfall_24h_mm": 150},
+    "red": {"water_level_m": 8.5, "rainfall_24h_mm": 250}
+  },
+  "DONGJIANG": {
+    "blue": {"water_level_m": 11.0, "rainfall_24h_mm": 40},
+    "yellow": {"water_level_m": 12.0, "rainfall_24h_mm": 70},
+    "orange": {"water_level_m": 13.0, "rainfall_24h_mm": 110},
+    "red": {"water_level_m": 13.5, "rainfall_24h_mm": 180}
   }
 }

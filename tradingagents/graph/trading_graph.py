@@ -18,13 +18,13 @@ from tradingagents.agents.utils.agent_utils import (
     get_hydrology_indicators,
     get_observations,
     get_rainfall_forecast,
+    get_realtime_weather,
     get_regional_indicators,
     get_river_flow,
     get_social_impact,
     get_soil_moisture,
     get_verified_observation_snapshot,
     get_water_storage,
-    get_weather_warning,
     resolve_station_identity,
     search_flood_knowledge,
 )
@@ -231,7 +231,7 @@ class TradingAgentsGraph:
                 [
                     # News and insider information
                     get_rainfall_forecast,
-                    get_weather_warning,
+                    get_realtime_weather,
                     get_regional_indicators,
                     get_forward_forecast,
                     search_flood_knowledge,
@@ -251,7 +251,7 @@ class TradingAgentsGraph:
 
     def resolve_area_context(self, area_name: str, asset_type: str = "flood") -> str:
         """解析一次站点身份并返回完整的区域上下文。"""
-        identity = resolve_station_identity(area_name)
+        identity = resolve_station_identity(area_name, self.config.get("stations_path"))
         return build_area_context(area_name, asset_type, identity)
 
     def _run_signature(self, asset_type: str) -> str:
