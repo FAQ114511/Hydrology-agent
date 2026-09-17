@@ -1,3 +1,8 @@
+# Hydrology-agent
+自己魔改的TauricAgent,水文预警场景
+---
+
+<<<<<<< HEAD
 <p align="center">
   <img src="assets/TauricResearch.png" style="width: 60%; height: auto;">
 </p>
@@ -303,3 +308,7 @@ Please reference our work if you find *TradingAgents* provides you with some hel
       url={https://arxiv.org/abs/2412.20138}, 
 }
 ```
+=======
+# Hydrology-agent
+自己魔改的TauricAgent,水文预警场景
+>>>>>>> origin/main
